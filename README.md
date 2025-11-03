@@ -49,7 +49,7 @@ sudo dnf install python3-gobject python3-gobject-devel gtk4
 sudo pacman -S python-gobject gtk4
 ```
 
-## Quick Start (Easiest Way)
+## Quick Start
 
 ### Single Command Launch
 
@@ -60,8 +60,7 @@ cd netmapper-lite
 
 That's it! This starts the helper and GUI together. You may be prompted for sudo password once for network permissions.
 
-### Alternative: Install to PATH
-
+**Optional:** Install to PATH so you can run from anywhere:
 ```bash
 ./netmapper.sh  # Installs launcher to ~/.local/bin
 netmapper       # Then run from anywhere
@@ -252,29 +251,52 @@ make clean
 
 ## Troubleshooting
 
-### Helper Not Available
+### Connection Refused
 
-- Check if helper is running: `ps aux | grep netmapper_helper`
-- Check socket exists: `ls -l /tmp/netmapper-helper.sock` (dev) or `/var/run/netmapper-helper.sock` (prod)
-- Check socket permissions
-- Review helper logs
+**Problem:** GUI shows "Connection refused"  
+**Solution:** Helper isn't running. Use the launcher:
+```bash
+./netmapper
+```
 
-### Permission Denied for Scanning
+### Permission Denied / Found 0 Hosts
 
-- Ensure helper has network capabilities: `sudo setcap cap_net_raw,cap_net_admin+eip /usr/bin/python3`
-- Or run helper with sudo: `sudo python3 backend/netmapper_helper.py --dev`
-- In production, ensure systemd service is running as root
+**Problem:** Scan completes but finds 0 hosts, helper logs show "Operation not permitted"  
+**Solution:** Helper needs network permissions. Options:
+
+1. **Use the launcher** (handles this automatically):
+   ```bash
+   ./netmapper  # Prompts for sudo if needed
+   ```
+
+2. **Set capabilities** (one-time setup):
+   ```bash
+   sudo setcap cap_net_raw,cap_net_admin+eip $(which python3)
+   ```
+
+3. **Run helper with sudo manually:**
+   ```bash
+   sudo python3 backend/netmapper_helper.py --dev
+   ```
 
 ### GTK Import Errors
 
-- Install GTK4 development packages (see Requirements section)
-- Verify Python bindings: `python3 -c "import gi; gi.require_version('Gtk', '4.0')"`
+**Problem:** `ImportError: No module named 'gi'`  
+**Solution:** Install GTK4 packages:
+```bash
+sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-4.0
+```
 
-### No Results from Scan
+### Helper Logs
 
-- Verify you're on the network you're scanning
-- Check network interface permissions
-- Review helper service logs: `journalctl -u netmapper-helper.service`
+Check helper status and logs:
+```bash
+# Development mode
+tail -f /tmp/helper.log
+
+# Production mode (systemd)
+sudo journalctl -u netmapper-helper.service -f
+```
 
 ## Security Notes
 
