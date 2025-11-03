@@ -25,15 +25,21 @@ cleanup() {
     echo ""
     echo "Cleaning up fake network..."
     # Remove network namespaces
-    for ns in $(ip netns list | grep "$NAMESPACE_PREFIX" | awk '{print $1}'); do
+    for ns in $(ip netns list | grep "$NAMESPACE_PREFIX" 2>/dev/null | awk '{print $1}'); do
         echo "  Removing namespace: $ns"
         ip netns delete "$ns" 2>/dev/null || true
     done
-    # Remove veth pairs
-    for iface in $(ip link show | grep -E "veth-$NAMESPACE_PREFIX" | cut -d: -f2 | awk '{print $1}'); do
+    # Remove veth pairs (both ends)
+    for iface in $(ip link show | grep -E "veth-.*-$NAMESPACE_PREFIX|veth-.*-host|veth-.*-device" | cut -d: -f2 | awk '{print $1}'); do
         echo "  Removing interface: $iface"
         ip link delete "$iface" 2>/dev/null || true
     done
+    # Remove bridge if it exists
+    if ip link show "$BRIDGE_NAME" &>/dev/null; then
+        echo "  Removing bridge: $BRIDGE_NAME"
+        ip link set "$BRIDGE_NAME" down 2>/dev/null || true
+        ip link delete "$BRIDGE_NAME" 2>/dev/null || true
+    fi
     echo "✅ Cleanup complete"
 }
 
@@ -47,9 +53,20 @@ echo ""
 # Create a bridge for the fake network
 BRIDGE_NAME="br-$NAMESPACE_PREFIX"
 echo "📡 Creating bridge: $BRIDGE_NAME"
-ip link add "$BRIDGE_NAME" type bridge 2>/dev/null || echo "  Bridge already exists"
-ip addr add "$TEST_GATEWAY/24" dev "$BRIDGE_NAME" 2>/dev/null || true
+
+# Check if bridge exists
+if ip link show "$BRIDGE_NAME" &>/dev/null; then
+    echo "  Bridge already exists, cleaning up first..."
+    ip link set "$BRIDGE_NAME" down 2>/dev/null || true
+    ip link delete "$BRIDGE_NAME" 2>/dev/null || true
+    sleep 1
+fi
+
+# Create fresh bridge
+ip link add "$BRIDGE_NAME" type bridge
+ip addr add "$TEST_GATEWAY/24" dev "$BRIDGE_NAME"
 ip link set "$BRIDGE_NAME" up
+echo "  ✅ Bridge created and started"
 
 # Define fake devices with interesting topology
 # Format: name,ip,hostname,vendor,role
