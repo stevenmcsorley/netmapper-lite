@@ -10,6 +10,7 @@ warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi')
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio, Gdk
+import cairo
 import json
 import socket
 import os
@@ -283,6 +284,248 @@ class MainWindow(Gtk.Window):
         self._load_full_history(history_store)
         
         return history_frame
+    
+    def _build_network_map_tab(self):
+        """Build network topology map tab."""
+        map_frame = Gtk.Frame(label="Network Topology Map")
+        
+        # Main box for map
+        map_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        map_box.set_margin_start(12)
+        map_box.set_margin_end(12)
+        map_box.set_margin_top(12)
+        map_box.set_margin_bottom(12)
+        map_frame.set_child(map_box)
+        
+        # Info label
+        info_label = Gtk.Label(label="Network topology visualization - click nodes for details")
+        info_label.set_halign(Gtk.Align.START)
+        map_box.append(info_label)
+        
+        # Drawing area for network map
+        self.map_drawing_area = Gtk.DrawingArea()
+        self.map_drawing_area.set_hexpand(True)
+        self.map_drawing_area.set_vexpand(True)
+        self.map_drawing_area.set_content_width(800)
+        self.map_drawing_area.set_content_height(600)
+        
+        # Store network map data
+        self.network_nodes = []  # List of {x, y, ip, mac, hostname, vendor, type, radius}
+        self.network_edges = []  # List of connections (for future)
+        
+        # Connect draw signal
+        self.map_drawing_area.set_draw_func(self._draw_network_map)
+        
+        # Mouse click handler
+        click_controller = Gtk.GestureClick()
+        click_controller.connect("pressed", self._on_map_clicked)
+        self.map_drawing_area.add_controller(click_controller)
+        
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_child(self.map_drawing_area)
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        map_box.append(scroll)
+        
+        # Refresh button
+        refresh_btn = Gtk.Button(label="Refresh Map")
+        refresh_btn.connect('clicked', self._refresh_network_map)
+        map_box.append(refresh_btn)
+        
+        return map_frame
+    
+    def _refresh_network_map(self, btn):
+        """Refresh the network map with current scan results."""
+        if not self.current_scan_id:
+            self._show_info_dialog("Network Map", "Run a scan first to generate the network map.")
+            return
+        
+        # Get current results
+        result = self.send_request({
+            "cmd": "get_results",
+            "scan_id": self.current_scan_id
+        })
+        
+        if result:
+            try:
+                j = json.loads(result)
+                if j.get('status') == 'ok':
+                    hosts = j.get('results', [])
+                    self._generate_network_map(hosts)
+                    self.map_drawing_area.queue_draw()
+            except:
+                pass
+    
+    def _generate_network_map(self, hosts):
+        """Generate network topology from hosts."""
+        if not hosts:
+            self.network_nodes = []
+            return
+        
+        # Simple circular layout
+        import math
+        center_x, center_y = 400, 300
+        radius = min(250, len(hosts) * 15)
+        
+        self.network_nodes = []
+        
+        # Identify gateway (usually .1 or .254)
+        gateway = None
+        for host in hosts:
+            ip_parts = host.get('ip', '').split('.')
+            if len(ip_parts) == 4:
+                last_octet = ip_parts[-1]
+                if last_octet in ['1', '254']:
+                    gateway = host
+                    break
+        
+        # Position gateway in center if found
+        if gateway:
+            self.network_nodes.append({
+                'x': center_x,
+                'y': center_y,
+                'ip': gateway.get('ip', ''),
+                'mac': gateway.get('mac', ''),
+                'hostname': gateway.get('hostname') or 'Router',
+                'vendor': gateway.get('vendor') or '',
+                'type': 'gateway',
+                'radius': 25
+            })
+            other_hosts = [h for h in hosts if h.get('ip') != gateway.get('ip')]
+        else:
+            other_hosts = hosts
+        
+        # Position other hosts in circle
+        angle_step = (2 * math.pi) / len(other_hosts) if other_hosts else 0
+        
+        for i, host in enumerate(other_hosts):
+            angle = i * angle_step
+            x = center_x + radius * math.cos(angle)
+            y = center_y + radius * math.sin(angle)
+            
+            # Determine node type
+            node_type = 'device'
+            hostname = host.get('hostname') or ''
+            vendor = host.get('vendor') or ''
+            
+            # Classify by vendor/type
+            if 'router' in hostname.lower() or 'gateway' in hostname.lower():
+                node_type = 'gateway'
+            elif 'server' in hostname.lower():
+                node_type = 'server'
+            
+            self.network_nodes.append({
+                'x': x,
+                'y': y,
+                'ip': host.get('ip', ''),
+                'mac': host.get('mac', ''),
+                'hostname': hostname or host.get('ip', ''),
+                'vendor': vendor,
+                'type': node_type,
+                'radius': 20
+            })
+        
+        # Generate edges (connections to gateway)
+        self.network_edges = []
+        if gateway:
+            gateway_ip = gateway.get('ip', '')
+            for node in self.network_nodes:
+                if node['ip'] != gateway_ip:
+                    self.network_edges.append((node, gateway_ip))
+    
+    def _draw_network_map(self, widget, cr, width, height):
+        """Draw the network topology map."""
+        # Clear background
+        cr.set_source_rgb(0.95, 0.95, 0.95)
+        cr.paint()
+        
+        if not self.network_nodes:
+            # Draw placeholder text
+            cr.set_source_rgb(0.5, 0.5, 0.5)
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            cr.set_font_size(24)
+            text = "Run a scan and click 'Refresh Map' to view network topology"
+            (x, y, text_width, text_height, dx, dy) = cr.text_extents(text)
+            cr.move_to((width - text_width) / 2, height / 2)
+            cr.show_text(text)
+            return
+        
+        # Draw edges (connections) first
+        cr.set_source_rgb(0.7, 0.7, 0.7)
+        cr.set_line_width(2)
+        
+        gateway_node = None
+        for node in self.network_nodes:
+            if node['type'] == 'gateway':
+                gateway_node = node
+                break
+        
+        if gateway_node:
+            for node in self.network_nodes:
+                if node['type'] != 'gateway':
+                    cr.move_to(node['x'], node['y'])
+                    cr.line_to(gateway_node['x'], gateway_node['y'])
+                    cr.stroke()
+        
+        # Draw nodes
+        for node in self.network_nodes:
+            # Color by type
+            if node['type'] == 'gateway':
+                cr.set_source_rgb(0.2, 0.6, 0.9)  # Blue for gateway
+            elif node['type'] == 'server':
+                cr.set_source_rgb(0.9, 0.6, 0.2)  # Orange for server
+            else:
+                cr.set_source_rgb(0.4, 0.7, 0.4)  # Green for devices
+            
+            # Draw node circle
+            cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
+            cr.fill()
+            
+            # Draw border
+            cr.set_source_rgb(0.2, 0.2, 0.2)
+            cr.set_line_width(2)
+            cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
+            cr.stroke()
+            
+            # Draw label (IP address)
+            cr.set_source_rgb(0, 0, 0)
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.set_font_size(10)
+            
+            label = node['ip'].split('.')[-1]  # Last octet
+            (x, y, text_width, text_height, dx, dy) = cr.text_extents(label)
+            cr.move_to(node['x'] - text_width / 2, node['y'] + node['radius'] + text_height + 5)
+            cr.show_text(label)
+            
+            # Draw hostname if short
+            if node['hostname'] and len(node['hostname']) < 15:
+                cr.set_font_size(8)
+                hostname = node['hostname']
+                (x, y, text_width, text_height, dx, dy) = cr.text_extents(hostname)
+                cr.move_to(node['x'] - text_width / 2, node['y'] - node['radius'] - 5)
+                cr.show_text(hostname)
+    
+    def _on_map_clicked(self, gesture, n_press, x, y):
+        """Handle mouse click on network map."""
+        # Get actual click coordinates in drawing area
+        allocation = self.map_drawing_area.get_allocation()
+        scale_x = self.map_drawing_area.get_content_width() / allocation.width if allocation.width > 0 else 1
+        scale_y = self.map_drawing_area.get_content_height() / allocation.height if allocation.height > 0 else 1
+        map_x = x * scale_x
+        map_y = y * scale_y
+        
+        # Find clicked node
+        for node in self.network_nodes:
+            distance = ((map_x - node['x'])**2 + (map_y - node['y'])**2)**0.5
+            if distance <= node['radius']:
+                # Show details for this node
+                self._show_host_details(
+                    node['ip'],
+                    node['mac'],
+                    node['hostname'],
+                    node['vendor']
+                )
+                break
     
     def _update_connection_status(self):
         """Update connection status indicator."""
