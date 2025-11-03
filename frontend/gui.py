@@ -837,7 +837,7 @@ class MainWindow(Gtk.Window):
                 'label': gateway_label,
                 'type': 'gateway',
                 'radius': 25,
-                'port_count': self._get_port_count(gateway.get('ip', ''))
+                'port_count': 0  # Will be fetched asynchronously later
             })
             other_hosts = [h for h in hosts if h.get('ip') != gateway.get('ip')]
         else:
@@ -937,7 +937,7 @@ class MainWindow(Gtk.Window):
                 'type': 'gateway',
                 'radius': 30,
                 'subnet': None,
-                'port_count': self._get_port_count(gateway.get('ip', ''))
+                'port_count': 0  # Will be fetched asynchronously later
             })
         
         # Position each subnet in a circle around the center
@@ -1001,7 +1001,7 @@ class MainWindow(Gtk.Window):
                     'type': node_type,
                     'radius': 12,
                     'subnet': subnet_cidr,
-                    'port_count': self._get_port_count(host.get('ip', ''))
+                    'port_count': 0  # Will be fetched asynchronously later
                 })
         
         # Generate edges: hosts connect to gateway, subnets connect to gateway
@@ -1626,11 +1626,12 @@ class MainWindow(Gtk.Window):
         if not ip:
             return 0
         try:
+            # Use a shorter timeout to avoid blocking
             result = self.send_request({
                 "cmd": "get_nmap_history",
                 "ip": ip,
                 "limit": 1
-            })
+            }, timeout=1.0)  # 1 second timeout
             if result:
                 j = json.loads(result)
                 if j.get('status') == 'ok' and j.get('history'):
@@ -1642,6 +1643,39 @@ class MainWindow(Gtk.Window):
         except:
             pass
         return 0
+    
+    def _load_port_counts_async(self):
+        """Load port counts for all nodes asynchronously to avoid blocking."""
+        if not self.network_nodes:
+            return False
+        
+        # Only load a few at a time to avoid overwhelming the socket
+        batch_size = 3
+        loaded = 0
+        
+        for node in self.network_nodes[:batch_size]:
+            if node.get('port_count', -1) == 0:  # Not loaded yet
+                try:
+                    port_count = self._get_port_count(node.get('ip', ''))
+                    if port_count > 0:
+                        node['port_count'] = port_count
+                        loaded += 1
+                except:
+                    pass
+        
+        # If we loaded some, redraw the map
+        if loaded > 0 and self.map_drawing_area:
+            self.map_drawing_area.queue_draw()
+        
+        # Continue loading more if there are nodes left
+        if len(self.network_nodes) > batch_size:
+            # Remove the ones we just processed
+            self.network_nodes = self.network_nodes[batch_size:]
+            # Schedule next batch
+            GLib.timeout_add(100, self._load_port_counts_async)  # 100ms delay between batches
+            return False
+        
+        return False  # Don't repeat
     
     def _on_window_close(self, window):
         """Handle window close event - save preferences."""
@@ -1844,6 +1878,8 @@ class MainWindow(Gtk.Window):
                         self._generate_network_map(hosts)
                         if self.map_drawing_area:
                             self.map_drawing_area.queue_draw()
+                        # Load port counts asynchronously (non-blocking)
+                        GLib.idle_add(self._load_port_counts_async)
                         self._load_scan_history()  # Refresh sidebar
                         # Show desktop notification
                         self._show_notification("Scan Complete", f"Found {len(hosts)} hosts")
