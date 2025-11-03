@@ -43,8 +43,12 @@ echo "Creating network topology (using dummy interfaces):"
 echo "  Gateway: $TEST_GATEWAY"
 echo "  Network: $TEST_NET"
 echo ""
-echo "⚠️  Note: This uses dummy interfaces. For real ARP scanning,"
-echo "   use the mock scanner mode instead: NETMAPPER_MOCK_SCAN=1"
+echo "⚠️  IMPORTANT: Your system may block network interface creation."
+echo "   If this fails, use MOCK MODE instead (recommended):"
+echo ""
+echo "   NETMAPPER_MOCK_SCAN=1 ./netmapper"
+echo ""
+echo "   Mock mode works instantly and doesn't need network interfaces!"
 echo ""
 
 # Define fake devices
@@ -85,12 +89,32 @@ for device_info in "${DEVICES[@]}"; do
     # Create namespace
     ip netns add "$ns_name" 2>/dev/null && echo "    ✅ Namespace created" || echo "    ⚠️  Namespace exists"
     
-    # Create dummy interface
-    ip link add "$dummy_iface" type dummy 2>/dev/null || {
-        echo "    ⚠️  Dummy interface exists, removing first..."
-        ip link delete "$dummy_iface" 2>/dev/null || true
-        ip link add "$dummy_iface" type dummy
-    }
+    # Try to create dummy interface - handle policy validation errors
+    if ! ip link add "$dummy_iface" type dummy 2>/dev/null; then
+        # If it exists, try to remove and recreate
+        if ip link show "$dummy_iface" &>/dev/null; then
+            echo "    ⚠️  Dummy interface exists, removing first..."
+            ip link delete "$dummy_iface" 2>/dev/null || true
+            sleep 0.5
+        fi
+        
+        # Try again, if still fails, it's a policy issue
+        if ! ip link add "$dummy_iface" type dummy 2>/dev/null; then
+            echo ""
+            echo "  ❌ Cannot create network interfaces (kernel security policy restriction)"
+            echo ""
+            echo "  💡 This system blocks network interface creation."
+            echo "     Use MOCK MODE instead (no interfaces needed):"
+            echo ""
+            echo "     NETMAPPER_MOCK_SCAN=1 ./netmapper"
+            echo "     Then scan: $TEST_NET"
+            echo ""
+            echo "  Mock mode provides the same fake network data without"
+            echo "  needing to create actual network interfaces."
+            echo ""
+            exit 1
+        fi
+    fi
     
     # Move dummy interface into namespace
     ip link set "$dummy_iface" netns "$ns_name"
