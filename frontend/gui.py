@@ -510,6 +510,133 @@ class MainWindow(Gtk.Window):
                 if node['ip'] != gateway_ip:
                     self.network_edges.append((node, gateway_ip))
     
+    def _generate_subnet_map(self, hosts, subnets, hosts_by_subnet):
+        """Generate network map with subnet groupings."""
+        import math
+        import subprocess
+        
+        self.network_nodes = []
+        
+        # Main center for overall network
+        center_x, center_y = 400, 300
+        main_radius = 200
+        
+        # Detect actual gateway
+        actual_gateway_ip = None
+        try:
+            result = subprocess.run(
+                ['ip', 'route', 'show', 'default'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                parts = result.stdout.split()
+                for i, part in enumerate(parts):
+                    if part == 'via':
+                        actual_gateway_ip = parts[i+1] if i+1 < len(parts) else None
+                        break
+        except:
+            pass
+        
+        # Position main gateway in center
+        gateway = None
+        for host in hosts:
+            if host.get('ip') == actual_gateway_ip or host.get('ip').endswith('.1') or host.get('ip').endswith('.254'):
+                gateway = host
+                break
+        
+        if gateway:
+            self.network_nodes.append({
+                'x': center_x,
+                'y': center_y,
+                'ip': gateway.get('ip', ''),
+                'mac': gateway.get('mac', ''),
+                'hostname': gateway.get('hostname') or '',
+                'vendor': gateway.get('vendor') or '',
+                'label': gateway.get('hostname') or gateway.get('vendor') or 'Gateway',
+                'type': 'gateway',
+                'radius': 30,
+                'subnet': None
+            })
+        
+        # Position each subnet in a circle around the center
+        subnet_count = len(subnets)
+        if subnet_count == 0:
+            subnet_count = 1
+        
+        subnet_angle_step = (2 * math.pi) / subnet_count if subnet_count > 1 else 0
+        subnet_radius = 180  # Distance from center to subnet center
+        
+        for idx, subnet in enumerate(subnets):
+            subnet_cidr = subnet['cidr']
+            subnet_hosts = hosts_by_subnet.get(subnet_cidr, [])
+            
+            if not subnet_hosts:
+                continue
+            
+            # Calculate subnet center position
+            if subnet_count == 1:
+                subnet_center_x, subnet_center_y = center_x, center_y
+            else:
+                angle = idx * subnet_angle_step
+                subnet_center_x = center_x + subnet_radius * math.cos(angle)
+                subnet_center_y = center_y + subnet_radius * math.sin(angle)
+            
+            # Add subnet label node (invisible, for reference)
+            subnet_label = subnet_cidr.split('/')[0].rsplit('.', 1)[0] + '.x/' + subnet_cidr.split('/')[1]
+            
+            # Position hosts in this subnet in a circle around subnet center
+            host_count = len(subnet_hosts)
+            if host_count == 0:
+                continue
+            
+            host_radius = min(60, host_count * 8)
+            host_angle_step = (2 * math.pi) / host_count if host_count > 1 else 0
+            
+            for host_idx, host in enumerate(subnet_hosts):
+                if gateway and host.get('ip') == gateway.get('ip'):
+                    continue  # Skip gateway, already placed
+                
+                host_angle = host_idx * host_angle_step
+                node_x = subnet_center_x + host_radius * math.cos(host_angle)
+                node_y = subnet_center_y + host_radius * math.sin(host_angle)
+                
+                # Determine node type
+                node_type = 'host'
+                hostname = host.get('hostname', '').lower() if host.get('hostname') else ''
+                if 'server' in hostname or 'db' in hostname:
+                    node_type = 'server'
+                elif 'router' in hostname or 'gateway' in hostname:
+                    node_type = 'gateway'
+                
+                self.network_nodes.append({
+                    'x': node_x,
+                    'y': node_y,
+                    'ip': host.get('ip', ''),
+                    'mac': host.get('mac', ''),
+                    'hostname': host.get('hostname') or '',
+                    'vendor': host.get('vendor') or '',
+                    'label': subnet_label,  # Show subnet info
+                    'type': node_type,
+                    'radius': 12,
+                    'subnet': subnet_cidr
+                })
+        
+        # Generate edges: hosts connect to gateway, subnets connect to gateway
+        self.network_edges = []
+        gateway_node = None
+        for node in self.network_nodes:
+            if node.get('type') == 'gateway':
+                gateway_node = node
+                break
+        
+        if gateway_node:
+            gateway_ip = gateway_node.get('ip', '')
+            for node in self.network_nodes:
+                if node.get('ip') != gateway_ip:
+                    self.network_edges.append((node, gateway_ip))
+    
     def _draw_network_map(self, widget, cr, width, height):
         """Draw the network topology map."""
         # Clear background
