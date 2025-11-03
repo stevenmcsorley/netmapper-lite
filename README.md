@@ -276,6 +276,11 @@ sudo systemctl start netmapper-helper.service
    - See a tooltip with IP, hostname, and vendor information
    - The node highlights when hovered
 
+10. **Window persistence**:
+    - The app remembers your window size and position
+    - Preferences are saved automatically when you close the window
+    - Settings stored in ~/.config/netmapper-lite/preferences.json
+
 ## Architecture
 
 ### IPC Communication
