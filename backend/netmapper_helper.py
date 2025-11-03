@@ -12,7 +12,11 @@ import threading
 import time
 import logging
 from pathlib import Path
-from scanner import arp_scan, nmap_scan
+try:
+    from .scanner import arp_scan, nmap_scan
+except ImportError:
+    # Fallback for direct execution
+    from scanner import arp_scan, nmap_scan
 
 # Configuration
 SOCKET_PATH = "/var/run/netmapper-helper.sock"  # Production path
