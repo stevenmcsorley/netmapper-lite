@@ -41,6 +41,9 @@ class MainWindow(Gtk.Window):
         self.network_nodes = []
         self.network_edges = []
         self.map_drawing_area = None
+        self.map_zoom = 1.0  # Zoom level (1.0 = 100%)
+        self.map_offset_x = 0.0  # Pan offset
+        self.map_offset_y = 0.0
         
         # Build UI
         try:
@@ -346,8 +349,8 @@ class MainWindow(Gtk.Window):
         self.map_drawing_area = Gtk.DrawingArea()
         self.map_drawing_area.set_hexpand(True)
         self.map_drawing_area.set_vexpand(True)
-        self.map_drawing_area.set_content_width(800)
-        self.map_drawing_area.set_content_height(600)
+        self.map_drawing_area.set_content_width(1200)
+        self.map_drawing_area.set_content_height(800)
         
         # Store network map data
         self.network_nodes = []  # List of {x, y, ip, mac, hostname, vendor, type, radius}
@@ -358,14 +361,34 @@ class MainWindow(Gtk.Window):
         
         # Mouse click handler
         click_controller = Gtk.GestureClick()
+        click_controller.set_button(1)  # Left mouse button
         click_controller.connect("pressed", self._on_map_clicked)
         self.map_drawing_area.add_controller(click_controller)
+        
+        # Scroll/zoom handler
+        scroll_controller = Gtk.EventControllerScroll()
+        scroll_controller.set_flags(Gtk.EventControllerScrollFlags.BOTH_AXES)
+        scroll_controller.connect("scroll", self._on_map_scroll)
+        self.map_drawing_area.add_controller(scroll_controller)
         
         scroll = Gtk.ScrolledWindow()
         scroll.set_child(self.map_drawing_area)
         scroll.set_hexpand(True)
         scroll.set_vexpand(True)
         map_box.append(scroll)
+        
+        # Zoom controls
+        zoom_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        zoom_in_btn = Gtk.Button(label="Zoom In (+)")
+        zoom_in_btn.connect('clicked', lambda b: self._zoom_map(1.2))
+        zoom_out_btn = Gtk.Button(label="Zoom Out (-)")
+        zoom_out_btn.connect('clicked', lambda b: self._zoom_map(0.8))
+        reset_btn = Gtk.Button(label="Reset View")
+        reset_btn.connect('clicked', lambda b: self._reset_map_view())
+        zoom_box.append(zoom_in_btn)
+        zoom_box.append(zoom_out_btn)
+        zoom_box.append(reset_btn)
+        map_box.append(zoom_box)
         
         # Refresh button
         refresh_btn = Gtk.Button(label="Refresh Map")
@@ -675,6 +698,10 @@ class MainWindow(Gtk.Window):
             cr.show_text(text)
             return
         
+        # Apply zoom and pan transform
+        cr.translate(self.map_offset_x, self.map_offset_y)
+        cr.scale(self.map_zoom, self.map_zoom)
+        
         # Draw edges (connections) first
         cr.set_source_rgb(0.7, 0.7, 0.7)
         cr.set_line_width(2)
@@ -732,25 +759,60 @@ class MainWindow(Gtk.Window):
     
     def _on_map_clicked(self, gesture, n_press, x, y):
         """Handle mouse click on network map."""
-        # Get actual click coordinates in drawing area
-        allocation = self.map_drawing_area.get_allocation()
-        scale_x = self.map_drawing_area.get_content_width() / allocation.width if allocation.width > 0 else 1
-        scale_y = self.map_drawing_area.get_content_height() / allocation.height if allocation.height > 0 else 1
-        map_x = x * scale_x
-        map_y = y * scale_y
+        if not self.network_nodes:
+            return
         
-        # Find clicked node
+        # Convert click coordinates to map coordinates (accounting for zoom and offset)
+        map_x = (x - self.map_offset_x) / self.map_zoom
+        map_y = (y - self.map_offset_y) / self.map_zoom
+        
+        # Find clicked node (check each node)
+        clicked_node = None
+        min_distance = float('inf')
+        
         for node in self.network_nodes:
             distance = ((map_x - node['x'])**2 + (map_y - node['y'])**2)**0.5
-            if distance <= node['radius']:
-                # Show details for this node
-                self._show_host_details(
-                    node['ip'],
-                    node['mac'],
-                    node['hostname'],
-                    node['vendor']
-                )
-                break
+            # Use larger hit radius for easier clicking
+            hit_radius = node.get('radius', 20) * 1.5  # 50% larger hit area
+            if distance <= hit_radius and distance < min_distance:
+                clicked_node = node
+                min_distance = distance
+        
+        if clicked_node:
+            # Show details for this node
+            self._show_host_details(
+                clicked_node['ip'],
+                clicked_node['mac'],
+                clicked_node.get('hostname', ''),
+                clicked_node.get('vendor', '')
+            )
+    
+    def _on_map_scroll(self, controller, dx, dy):
+        """Handle scroll/zoom on network map."""
+        # Check if Ctrl is pressed for zoom, otherwise pan
+        modifiers = controller.get_current_event_state() if hasattr(controller, 'get_current_event_state') else 0
+        is_ctrl = (modifiers & Gdk.ModifierType.CONTROL_MASK) if hasattr(Gdk, 'ModifierType') else False
+        
+        if is_ctrl or dy != 0:
+            # Zoom (Ctrl+scroll or trackpad pinch)
+            zoom_factor = 1.1 if dy < 0 else 0.9
+            self._zoom_map(zoom_factor)
+            return True
+        return False
+    
+    def _zoom_map(self, factor):
+        """Zoom the network map."""
+        self.map_zoom *= factor
+        # Limit zoom range
+        self.map_zoom = max(0.1, min(5.0, self.map_zoom))
+        self.map_drawing_area.queue_draw()
+    
+    def _reset_map_view(self):
+        """Reset zoom and pan to default."""
+        self.map_zoom = 1.0
+        self.map_offset_x = 0.0
+        self.map_offset_y = 0.0
+        self.map_drawing_area.queue_draw()
     
     def _update_connection_status(self):
         """Update connection status indicator."""
@@ -927,12 +989,16 @@ class MainWindow(Gtk.Window):
                 if j.get('status') == 'ok' and j.get('results'):
                     hosts = j.get('results', [])
                     if hosts:
-                        self._update_results(hosts)
-                        self.status_label.set_text(f"Scan complete: {len(hosts)} hosts found")
-                        self.scan_btn.set_sensitive(True)
-                        self.export_btn.set_sensitive(True)
-                        self._load_scan_history()  # Refresh sidebar
-                        return False
+                    self._update_results(hosts)
+                    self.status_label.set_text(f"Scan complete: {len(hosts)} hosts found")
+                    self.scan_btn.set_sensitive(True)
+                    self.export_btn.set_sensitive(True)
+                    # Auto-generate and show network map
+                    self._generate_network_map(hosts)
+                    if self.map_drawing_area:
+                        self.map_drawing_area.queue_draw()
+                    self._load_scan_history()  # Refresh sidebar
+                    return False
             except:
                 pass
         
