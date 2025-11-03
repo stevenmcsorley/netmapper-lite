@@ -63,3 +63,4 @@
 - [ ] Input validation hardening
 - [ ] Secure socket communication (optional encryption)
 
+

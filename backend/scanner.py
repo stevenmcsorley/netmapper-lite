@@ -66,3 +66,4 @@ def nmap_scan(ip, ports="1-1024"):
     except Exception as e:
         return f"<error>Nmap error: {str(e)}</error>"
 
+

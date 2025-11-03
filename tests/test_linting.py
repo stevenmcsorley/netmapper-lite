@@ -54,3 +54,4 @@ if __name__ == '__main__':
     if not (ruff_ok and flake8_ok):
         sys.exit(1)
 
+
