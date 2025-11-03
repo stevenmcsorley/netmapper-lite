@@ -184,6 +184,10 @@ class MainWindow(Gtk.Window):
         map_frame = self._build_network_map_tab()
         self.notebook.append_page(map_frame, Gtk.Label(label="Network Map"))
         
+        # Scan Comparison tab
+        compare_frame = self._build_compare_tab()
+        self.notebook.append_page(compare_frame, Gtk.Label(label="Compare Scans"))
+        
         # Bottom status bar
         status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         status_bar.set_margin_start(6)
@@ -436,6 +440,7 @@ class MainWindow(Gtk.Window):
         # Store network map data
         self.network_nodes = []  # List of {x, y, ip, mac, hostname, vendor, type, radius}
         self.network_edges = []  # List of connections (for future)
+        self.hovered_node = None  # Currently hovered node
         
         # Connect draw signal
         self.map_drawing_area.set_draw_func(self._draw_network_map)
@@ -445,6 +450,12 @@ class MainWindow(Gtk.Window):
         click_controller.set_button(1)  # Left mouse button
         click_controller.connect("pressed", self._on_map_clicked)
         self.map_drawing_area.add_controller(click_controller)
+        
+        # Mouse motion handler for hover tooltips
+        motion_controller = Gtk.EventControllerMotion()
+        motion_controller.connect("motion", self._on_map_motion)
+        motion_controller.connect("leave", self._on_map_leave)
+        self.map_drawing_area.add_controller(motion_controller)
         
         # Scroll/zoom handler
         scroll_controller = Gtk.EventControllerScroll()
@@ -955,6 +966,36 @@ class MainWindow(Gtk.Window):
                 clicked_node.get('vendor', '')
             )
     
+    def _on_map_motion(self, controller, x, y):
+        """Handle mouse motion over network map for tooltips."""
+        if not self.network_nodes:
+            return
+        
+        # Convert to map coordinates
+        map_x = (x - self.map_offset_x) / self.map_zoom
+        map_y = (y - self.map_offset_y) / self.map_zoom
+        
+        # Find hovered node
+        hovered = None
+        min_distance = float('inf')
+        
+        for node in self.network_nodes:
+            distance = ((map_x - node['x'])**2 + (map_y - node['y'])**2)**0.5
+            hit_radius = node.get('radius', 20) * 1.5
+            if distance <= hit_radius and distance < min_distance:
+                hovered = node
+                min_distance = distance
+        
+        if hovered != self.hovered_node:
+            self.hovered_node = hovered
+            self.map_drawing_area.queue_draw()  # Redraw to show tooltip
+    
+    def _on_map_leave(self, controller):
+        """Handle mouse leaving the map area."""
+        if self.hovered_node:
+            self.hovered_node = None
+            self.map_drawing_area.queue_draw()
+    
     def _on_map_scroll(self, controller, dx, dy):
         """Handle scroll/zoom on network map."""
         # Check if Ctrl is pressed for zoom, otherwise pan
@@ -1035,12 +1076,21 @@ class MainWindow(Gtk.Window):
                 j = json.loads(result)
                 if j.get('status') == 'ok':
                     self.history_store.clear()
+                    self.compare_scan1_combo.remove_all()
+                    self.compare_scan2_combo.remove_all()
+                    
                     for scan in j.get('history', []):
                         scan_id = scan.get('scan_id', '')
                         cidr = scan.get('cidr', '')
                         ts = scan.get('timestamp', 0)
                         time_str = time.strftime('%H:%M', time.localtime(ts)) if ts else '-'
+                        display_str = f"{cidr} @ {time_str}"
+                        
                         self.history_store.append([scan_id, cidr, time_str])
+                        
+                        # Add to comparison dropdowns
+                        self.compare_scan1_combo.append(scan_id, display_str)
+                        self.compare_scan2_combo.append(scan_id, display_str)
             except:
                 pass
     
@@ -1375,8 +1425,9 @@ class MainWindow(Gtk.Window):
         
         try:
             j = json.loads(result)
-            if j.get('status') == 'ok':
+                if j.get('status') == 'ok':
                 nmap_xml = j.get('nmap_xml', '')
+                # Results are now saved automatically by helper
                 self._show_nmap_results(ip, nmap_xml)
             else:
                 self.status_label.set_text(f"Error: {j.get('message', 'Unknown error')}")

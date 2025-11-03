@@ -65,6 +65,18 @@ class NetMapperHelper:
             vendor TEXT,
             FOREIGN KEY(scan_id) REFERENCES scans(id)
         )''')
+        # Nmap scan results table
+        c.execute('''CREATE TABLE IF NOT EXISTS nmap_scans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT,
+            scan_timestamp INTEGER,
+            ports TEXT,
+            services TEXT,
+            nmap_xml TEXT
+        )''')
+        # Index for quick lookups
+        c.execute('''CREATE INDEX IF NOT EXISTS idx_nmap_ip ON nmap_scans(ip)''')
+        c.execute('''CREATE INDEX IF NOT EXISTS idx_nmap_timestamp ON nmap_scans(scan_timestamp DESC)''')
         conn.commit()
         conn.close()
         logger.info(f"Database initialized at {self.db_path}")
@@ -153,6 +165,10 @@ class NetMapperHelper:
                 ports = req.get('ports', '1-1024')
                 logger.info(f"Nmap scan requested for {ip}:{ports}")
                 res = nmap_scan(ip, ports)
+                
+                # Save Nmap results to database
+                self._save_nmap_results(ip, ports, res)
+                
                 conn.sendall(json.dumps({
                     "status": "ok",
                     "nmap_xml": res
@@ -173,6 +189,54 @@ class NetMapperHelper:
                     "results": results
                 }).encode('utf-8'))
                 
+            elif cmd == 'get_nmap_history':
+                ip = req.get('ip')
+                if not ip:
+                    conn.sendall(json.dumps({
+                        "status": "error",
+                        "message": "Missing IP parameter"
+                    }).encode('utf-8'))
+                    return
+                
+                limit = req.get('limit', 10)
+                conn = sqlite3.connect(self.db_path)
+                c = conn.cursor()
+                c.execute('''SELECT scan_timestamp, ports, services 
+                             FROM nmap_scans 
+                             WHERE ip = ? 
+                             ORDER BY scan_timestamp DESC 
+                             LIMIT ?''',
+                          (ip, limit))
+                results = []
+                for row in c.fetchall():
+                    results.append({
+                        'timestamp': row[0],
+                        'ports': row[1] or '',
+                        'services': row[2] or ''
+                    })
+                conn.close()
+                
+                conn.sendall(json.dumps({
+                    "status": "ok",
+                    "history": results
+                }).encode('utf-8'))
+            
+            elif cmd == 'compare_scans':
+                scan_id1 = req.get('scan_id1')
+                scan_id2 = req.get('scan_id2')
+                if not scan_id1 or not scan_id2:
+                    conn.sendall(json.dumps({
+                        "status": "error",
+                        "message": "Missing scan_id parameters"
+                    }).encode('utf-8'))
+                    return
+                
+                comparison = self._compare_scans(scan_id1, scan_id2)
+                conn.sendall(json.dumps({
+                    "status": "ok",
+                    "comparison": comparison
+                }).encode('utf-8'))
+            
             elif cmd == 'list_history':
                 limit = req.get('limit', 10)
                 history = self._get_scan_history(limit)
