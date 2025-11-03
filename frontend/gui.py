@@ -46,6 +46,14 @@ class MainWindow(Gtk.Window):
         self.socket_path = DEV_SOCKET_PATH if os.path.exists(DEV_SOCKET_PATH) else SOCKET_PATH
         self.db_path = DEV_DB_PATH if os.path.exists(DEV_DB_PATH) else DB_PATH
         
+        # Initialize window preferences (must be before _build_ui)
+        self._config_dir = os.path.expanduser("~/.config/netmapper-lite")
+        os.makedirs(self._config_dir, exist_ok=True)
+        self._config_file = os.path.join(self._config_dir, "preferences.json")
+        self._window_prefs = {'width': 1200, 'height': 800, 'x': -1, 'y': -1}
+        self._app_prefs = {'dark_mode': 'auto', 'network_profiles': []}
+        self._load_window_prefs()
+        
         # Initialize network map data
         self.network_nodes = []
         self.network_edges = []
