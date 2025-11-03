@@ -87,8 +87,27 @@ class MainWindow(Gtk.Window):
         input_box.append(cidr_label)
         
         self.cidr_entry = Gtk.Entry()
-        self.cidr_entry.set_text('192.168.1.0/24')
-        self.cidr_entry.set_placeholder_text('192.168.1.0/24')
+        # Auto-detect network for default CIDR
+        try:
+            import subprocess
+            result = subprocess.run(['ip', '-4', 'route', 'show', 'default'], 
+                                  capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                parts = result.stdout.split()
+                for i, part in enumerate(parts):
+                    if part == 'src':
+                        ip = parts[i+1] if i+1 < len(parts) else None
+                        if ip:
+                            net = '.'.join(ip.split('.')[:-1])
+                            default_cidr = f"{net}.0/24"
+                            self.cidr_entry.set_text(default_cidr)
+                            break
+        except:
+            pass
+        
+        if not self.cidr_entry.get_text():
+            self.cidr_entry.set_text('192.168.1.0/24')
+        self.cidr_entry.set_placeholder_text('e.g., 192.168.1.0/24')
         self.cidr_entry.set_hexpand(True)
         input_box.append(self.cidr_entry)
         control_box.append(input_box)
