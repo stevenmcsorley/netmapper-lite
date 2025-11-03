@@ -9,12 +9,13 @@ warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi')
 
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gio, Gdk
 try:
+    gi.require_version('Notify', '0.7')
     from gi.repository import Notify
     NOTIFY_AVAILABLE = True
-except ImportError:
+except (ImportError, ValueError):
     NOTIFY_AVAILABLE = False
+from gi.repository import Gtk, GLib, Gio, Gdk
 import cairo
 import sys
 import json
@@ -136,6 +137,13 @@ class MainWindow(Gtk.Window):
         self.scan_btn.connect('clicked', self.on_scan_clicked)
         self.scan_btn.add_css_class('suggested-action')
         control_box.append(self.scan_btn)
+        
+        # Cancel scan button (hidden initially)
+        self.cancel_scan_btn = Gtk.Button(label='Cancel Scan')
+        self.cancel_scan_btn.connect('clicked', self.on_cancel_scan_clicked)
+        self.cancel_scan_btn.set_visible(False)
+        self.cancel_scan_btn.add_css_class('destructive-action')
+        control_box.append(self.cancel_scan_btn)
         
         # Nmap scan button (for selected host)
         self.nmap_btn = Gtk.Button(label='Scan Ports (Nmap)')
@@ -1211,10 +1219,14 @@ class MainWindow(Gtk.Window):
                     self.status_label.set_text(f"Scan complete: {len(hosts)} hosts found")
                     self.scan_btn.set_sensitive(True)
                     self.export_btn.set_sensitive(True)
+                    self.cancel_scan_btn.set_visible(False)
                     self._load_scan_history()  # Refresh sidebar
                     # Auto-generate network map
                     self._generate_network_map(hosts)
-                    self.map_drawing_area.queue_draw()
+                    if self.map_drawing_area:
+                        self.map_drawing_area.queue_draw()
+                    # Show desktop notification
+                    self._show_notification("Scan Complete", f"Found {len(hosts)} hosts")
                     return False
         except Exception as e:
             print(f"Database access error: {e}")
