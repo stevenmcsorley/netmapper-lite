@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi')
 
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gio
+from gi.repository import Gtk, GLib, Gio, Gdk
 import json
 import socket
 import os
@@ -120,6 +120,10 @@ class MainWindow(Gtk.Window):
         # History tab
         history_frame = self._build_history_tab()
         self.notebook.append_page(history_frame, Gtk.Label(label="History"))
+        
+        # Network Map tab
+        map_frame = self._build_network_map_tab()
+        self.notebook.append_page(map_frame, Gtk.Label(label="Network Map"))
         
         # Bottom status bar
         status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -448,6 +452,9 @@ class MainWindow(Gtk.Window):
                     self.scan_btn.set_sensitive(True)
                     self.export_btn.set_sensitive(True)
                     self._load_scan_history()  # Refresh sidebar
+                    # Auto-generate network map
+                    self._generate_network_map(hosts)
+                    self.map_drawing_area.queue_draw()
                     return False
         except Exception as e:
             print(f"Database access error: {e}")
