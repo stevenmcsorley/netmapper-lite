@@ -33,16 +33,21 @@ NetMapper-Lite is a two-process native Linux application:
 ### Network Visualization
 - **Interactive network topology map** with zoom, pan, and clickable nodes
 - **Color-coded device types** - Gateway (blue), Servers (orange), IoT (purple), Mobile (yellow), Printers (light blue), Unknown (gray)
+- **Port count badges** - shows open port count on map nodes (after Nmap scans)
+- **Hover tooltips** - display device info when hovering over map nodes
 - **Visual legend** - shows device type colors on the map
 - **Subnet clustering** - devices grouped by subnet for complex networks
 - **Export map as PNG** - save network topology as an image file
 
 ### User Interface
+- **Dark mode theme** - Auto/Manual/Dark/Light theme support with system detection
+- **Keyboard shortcuts** - Ctrl+S (scan), Ctrl+F (search), Ctrl+E (export), Esc (cancel)
 - **Filter/search box** - real-time filtering by IP, hostname, MAC, or vendor
 - **Sortable columns** - click column headers to sort results
 - **Progress indicator** - shows scan progress with elapsed time
 - **Desktop notifications** - alerts when scans complete
 - **Window persistence** - remembers window size and position across sessions
+- **Network profiles** - save and quickly switch between common CIDRs
 - **GTK4 native Linux UI** - modern, responsive desktop interface
 - **Scan history** - browse past scans and results in sidebar
 - **Host details dialog** - double-click hosts for detailed information with Nmap history
@@ -51,6 +56,7 @@ NetMapper-Lite is a two-process native Linux application:
 - **SQLite-based scan history** - persistent storage of all scans
 - **Nmap results storage** - automatically saves port scans to database
 - **Nmap history per host** - view past port scans for any device in host details
+- **Nmap scan templates** - Quick, Common, Full, and Service scan presets
 - **Scan comparison/diff** - compare two scans to see what changed
 - **Export functionality** - save scan results as JSON or CSV
 - **Nmap results display** - view open ports and services per host
@@ -280,6 +286,23 @@ sudo systemctl start netmapper-helper.service
     - The app remembers your window size and position
     - Preferences are saved automatically when you close the window
     - Settings stored in ~/.config/netmapper-lite/preferences.json
+
+11. **Dark mode theme**:
+    - Click the "🌙 Theme" button in the status bar
+    - Toggles between Auto (system), Dark, and Light modes
+    - Theme preference is saved automatically
+
+12. **Keyboard shortcuts**:
+    - **Ctrl+S**: Start scan
+    - **Ctrl+F**: Focus search box
+    - **Ctrl+E**: Export results
+    - **Esc**: Cancel ongoing scan
+
+13. **Network profiles**:
+    - Save common CIDRs as named profiles using the 💾 button
+    - Select from dropdown to quickly switch between networks
+    - App remembers last scanned CIDR
+    - Profiles stored in preferences.json
 
 ## Architecture
 
