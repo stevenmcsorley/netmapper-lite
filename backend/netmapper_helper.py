@@ -296,6 +296,99 @@ class NetMapperHelper:
         except Exception as e:
             logger.error(f"Scan error for {scan_id}: {e}", exc_info=True)
 
+    def _save_nmap_results(self, ip, ports, nmap_xml):
+        """Save Nmap scan results to database."""
+        try:
+            # Parse XML to extract ports and services
+            ports_list = []
+            services_list = []
+            
+            if nmap_xml:
+                import xml.etree.ElementTree as ET
+                try:
+                    root = ET.fromstring(nmap_xml)
+                    for host in root.findall('host'):
+                        for port in host.findall('.//port'):
+                            port_id = port.get('portid')
+                            protocol = port.get('protocol', 'tcp')
+                            state = port.find('state')
+                            service = port.find('service')
+                            
+                            if state is not None and state.get('state') == 'open':
+                                ports_list.append(f"{port_id}/{protocol}")
+                                if service is not None:
+                                    name = service.get('name', '')
+                                    product = service.get('product', '')
+                                    version = service.get('version', '')
+                                    if product or name:
+                                        svc_str = f"{name}"
+                                        if product:
+                                            svc_str += f" ({product}"
+                                            if version:
+                                                svc_str += f" {version}"
+                                            svc_str += ")"
+                                        services_list.append(f"{port_id}/{protocol}: {svc_str}")
+                except ET.ParseError:
+                    pass  # Invalid XML, just store raw
+            
+            ports_str = ', '.join(ports_list)
+            services_str = ', '.join(services_list)
+            
+            # Save to database
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''INSERT INTO nmap_scans (ip, scan_timestamp, ports, services, nmap_xml)
+                         VALUES (?, ?, ?, ?, ?)''',
+                      (ip, int(time.time()), ports_str, services_str, nmap_xml))
+            conn.commit()
+            conn.close()
+            logger.info(f"Nmap results saved for {ip}: {len(ports_list)} open ports")
+        except Exception as e:
+            logger.error(f"Error saving Nmap results: {e}", exc_info=True)
+    
+    def _compare_scans(self, scan_id1, scan_id2):
+        """Compare two scans and return differences."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        
+        # Get hosts from both scans
+        c.execute('SELECT ip, mac, hostname, vendor FROM hosts WHERE scan_id=?', (scan_id1,))
+        hosts1 = {row[0]: {'ip': row[0], 'mac': row[1], 'hostname': row[2], 'vendor': row[3]} 
+                  for row in c.fetchall()}
+        
+        c.execute('SELECT ip, mac, hostname, vendor FROM hosts WHERE scan_id=?', (scan_id2,))
+        hosts2 = {row[0]: {'ip': row[0], 'mac': row[1], 'hostname': row[2], 'vendor': row[3]} 
+                  for row in c.fetchall()}
+        
+        # Find differences
+        new_hosts = [hosts2[ip] for ip in hosts2 if ip not in hosts1]
+        disappeared_hosts = [hosts1[ip] for ip in hosts1 if ip not in hosts2]
+        
+        # Find changed hosts (same IP, different MAC/hostname)
+        changed_hosts = []
+        for ip in hosts1:
+            if ip in hosts2:
+                h1 = hosts1[ip]
+                h2 = hosts2[ip]
+                changes = {}
+                if h1['mac'] != h2['mac']:
+                    changes['mac'] = {'old': h1['mac'], 'new': h2['mac']}
+                if h1['hostname'] != h2['hostname']:
+                    changes['hostname'] = {'old': h1['hostname'], 'new': h2['hostname']}
+                if h1['vendor'] != h2['vendor']:
+                    changes['vendor'] = {'old': h1['vendor'], 'new': h2['vendor']}
+                if changes:
+                    changed_hosts.append({'ip': ip, **h2, 'changes': changes})
+        
+        conn.close()
+        
+        return {
+            'new': new_hosts,
+            'disappeared': disappeared_hosts,
+            'changed': changed_hosts,
+            'unchanged': [hosts1[ip] for ip in hosts1 if ip in hosts2 and ip not in [h['ip'] for h in changed_hosts]]
+        }
+
     def _lookup_vendor(self, mac):
         """Lookup vendor from MAC address using OUI database."""
         if not mac:

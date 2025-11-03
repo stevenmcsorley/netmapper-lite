@@ -494,6 +494,185 @@ class MainWindow(Gtk.Window):
         
         return map_frame
     
+    def _build_compare_tab(self):
+        """Build scan comparison tab."""
+        compare_frame = Gtk.Frame(label="Compare Scans")
+        
+        compare_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        compare_box.set_margin_start(12)
+        compare_box.set_margin_end(12)
+        compare_box.set_margin_top(12)
+        compare_box.set_margin_bottom(12)
+        compare_frame.set_child(compare_box)
+        
+        # Instructions
+        info_label = Gtk.Label(label="Select two scans from history to compare. This will show new devices, disappeared devices, and changed hosts.")
+        info_label.set_wrap(True)
+        info_label.set_halign(Gtk.Align.START)
+        compare_box.append(info_label)
+        
+        # Scan selection
+        selection_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        compare_box.append(selection_box)
+        
+        scan1_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        scan1_label = Gtk.Label(label="Scan 1 (Older):")
+        scan1_label.set_halign(Gtk.Align.START)
+        scan1_box.append(scan1_label)
+        
+        self.compare_scan1_combo = Gtk.ComboBoxText()
+        self.compare_scan1_combo.set_hexpand(True)
+        scan1_box.append(self.compare_scan1_combo)
+        selection_box.append(scan1_box)
+        
+        scan2_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        scan2_label = Gtk.Label(label="Scan 2 (Newer):")
+        scan2_label.set_halign(Gtk.Align.START)
+        scan2_box.append(scan2_label)
+        
+        self.compare_scan2_combo = Gtk.ComboBoxText()
+        self.compare_scan2_combo.set_hexpand(True)
+        scan2_box.append(self.compare_scan2_combo)
+        selection_box.append(scan2_box)
+        
+        compare_btn = Gtk.Button(label="Compare Scans")
+        compare_btn.connect('clicked', self._on_compare_scans)
+        selection_box.append(compare_btn)
+        
+        # Results area
+        results_notebook = Gtk.Notebook()
+        results_notebook.set_hexpand(True)
+        results_notebook.set_vexpand(True)
+        compare_box.append(results_notebook)
+        
+        # New hosts tab
+        new_store = Gtk.ListStore(str, str, str, str)
+        self.compare_new_view = Gtk.TreeView(model=new_store)
+        self._setup_compare_columns(self.compare_new_view)
+        new_scroll = Gtk.ScrolledWindow()
+        new_scroll.set_child(self.compare_new_view)
+        results_notebook.append_page(new_scroll, Gtk.Label(label="New Hosts"))
+        
+        # Disappeared hosts tab
+        disappeared_store = Gtk.ListStore(str, str, str, str)
+        self.compare_disappeared_view = Gtk.TreeView(model=disappeared_store)
+        self._setup_compare_columns(self.compare_disappeared_view)
+        disappeared_scroll = Gtk.ScrolledWindow()
+        disappeared_scroll.set_child(self.compare_disappeared_view)
+        results_notebook.append_page(disappeared_scroll, Gtk.Label(label="Disappeared"))
+        
+        # Changed hosts tab
+        changed_store = Gtk.ListStore(str, str, str, str, str)
+        self.compare_changed_view = Gtk.TreeView(model=changed_store)
+        self._setup_compare_columns(self.compare_changed_view, changed=True)
+        changed_scroll = Gtk.ScrolledWindow()
+        changed_scroll.set_child(self.compare_changed_view)
+        results_notebook.append_page(changed_scroll, Gtk.Label(label="Changed"))
+        
+        return compare_frame
+    
+    def _setup_compare_columns(self, tree_view, changed=False):
+        """Setup columns for comparison views."""
+        renderer = Gtk.CellRendererText()
+        
+        col = Gtk.TreeViewColumn(title="IP")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 0)
+        tree_view.append_column(col)
+        
+        col = Gtk.TreeViewColumn(title="MAC")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 1)
+        tree_view.append_column(col)
+        
+        col = Gtk.TreeViewColumn(title="Hostname")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 2)
+        tree_view.append_column(col)
+        
+        col = Gtk.TreeViewColumn(title="Vendor")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 3)
+        tree_view.append_column(col)
+        
+        if changed:
+            col = Gtk.TreeViewColumn(title="Changes")
+            col.pack_start(renderer, True)
+            col.add_attribute(renderer, "text", 4)
+            col.set_resizable(True)
+            tree_view.append_column(col)
+    
+    def _on_compare_scans(self, btn):
+        """Handle compare scans button click."""
+        scan_id1 = self.compare_scan1_combo.get_active_id()
+        scan_id2 = self.compare_scan2_combo.get_active_id()
+        
+        if not scan_id1 or not scan_id2:
+            self._show_info_dialog("Compare Scans", "Please select both scans to compare.")
+            return
+        
+        if scan_id1 == scan_id2:
+            self._show_info_dialog("Compare Scans", "Please select two different scans.")
+            return
+        
+        result = self.send_request({
+            "cmd": "compare_scans",
+            "scan_id1": scan_id1,
+            "scan_id2": scan_id2
+        })
+        
+        if not result:
+            self._show_error_dialog("Error", "Could not compare scans.")
+            return
+        
+        try:
+            j = json.loads(result)
+            if j.get('status') == 'ok':
+                comparison = j.get('comparison', {})
+                self._display_comparison(comparison)
+            else:
+                self._show_error_dialog("Error", j.get('message', 'Unknown error'))
+        except Exception as e:
+            self._show_error_dialog("Error", f"Failed to parse comparison: {e}")
+    
+    def _display_comparison(self, comparison):
+        """Display comparison results."""
+        # New hosts
+        new_store = Gtk.ListStore(str, str, str, str)
+        for host in comparison.get('new', []):
+            new_store.append([
+                host.get('ip', ''),
+                host.get('mac', ''),
+                host.get('hostname') or '-',
+                host.get('vendor') or '-'
+            ])
+        self.compare_new_view.set_model(new_store)
+        
+        # Disappeared hosts
+        disappeared_store = Gtk.ListStore(str, str, str, str)
+        for host in comparison.get('disappeared', []):
+            disappeared_store.append([
+                host.get('ip', ''),
+                host.get('mac', ''),
+                host.get('hostname') or '-',
+                host.get('vendor') or '-'
+            ])
+        self.compare_disappeared_view.set_model(disappeared_store)
+        
+        # Changed hosts
+        changed_store = Gtk.ListStore(str, str, str, str, str)
+        for host in comparison.get('changed', []):
+            changes = host.get('changes', {})
+            changes_str = ', '.join([f"{k}: {v['old']} → {v['new']}" for k, v in changes.items()])
+            changed_store.append([
+                host.get('ip', ''),
+                host.get('mac', ''),
+                host.get('hostname') or '-',
+                host.get('vendor') or '-',
+                changes_str
+            ])
+        self.compare_changed_view.set_model(changed_store)
+    
     def _refresh_network_map(self, btn):
         """Refresh the network map with current scan results."""
         if not self.current_scan_id:
@@ -852,6 +1031,55 @@ class MainWindow(Gtk.Window):
             cr.set_line_width(2)
             cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
             cr.stroke()
+            
+            # Highlight hovered node
+            if self.hovered_node and node['ip'] == self.hovered_node['ip']:
+                # Draw highlight ring
+                cr.set_source_rgba(0.2, 0.6, 0.9, 0.5)
+                cr.set_line_width(3)
+                cr.arc(node['x'], node['y'], node['radius'] + 3, 0, 2 * 3.14159)
+                cr.stroke()
+                
+                # Draw tooltip background (in map coordinates)
+                tooltip_text = f"{node['ip']}"
+                if node.get('hostname'):
+                    tooltip_text += f"\n{node['hostname']}"
+                if node.get('vendor'):
+                    tooltip_text += f"\n{node['vendor']}"
+                
+                cr.select_font_face("Sans")
+                cr.set_font_size(9)
+                lines = tooltip_text.split('\n')
+                max_width = 0
+                total_height = 0
+                line_heights = []
+                for line in lines:
+                    (x, y, text_width, text_height, dx, dy) = cr.text_extents(line)
+                    line_heights.append(text_height)
+                    max_width = max(max_width, text_width)
+                    total_height += text_height + 2
+                
+                tooltip_x = node['x'] - max_width / 2 - 6
+                tooltip_y = node['y'] - node['radius'] - total_height - 15
+                
+                # Background
+                cr.set_source_rgba(0.95, 0.95, 0.95, 0.95)
+                cr.rectangle(tooltip_x - 4, tooltip_y - 4, max_width + 12, total_height + 8)
+                cr.fill()
+                
+                # Border
+                cr.set_source_rgba(0.5, 0.5, 0.5, 0.8)
+                cr.set_line_width(1)
+                cr.rectangle(tooltip_x - 4, tooltip_y - 4, max_width + 12, total_height + 8)
+                cr.stroke()
+                
+                # Text
+                cr.set_source_rgb(0, 0, 0)
+                y_offset = tooltip_y
+                for i, line in enumerate(lines):
+                    cr.move_to(tooltip_x, y_offset + line_heights[i])
+                    cr.show_text(line)
+                    y_offset += line_heights[i] + 2
             
             # Draw label (IP address)
             cr.set_source_rgb(0, 0, 0)
@@ -1425,7 +1653,7 @@ class MainWindow(Gtk.Window):
         
         try:
             j = json.loads(result)
-                if j.get('status') == 'ok':
+            if j.get('status') == 'ok':
                 nmap_xml = j.get('nmap_xml', '')
                 # Results are now saved automatically by helper
                 self._show_nmap_results(ip, nmap_xml)
