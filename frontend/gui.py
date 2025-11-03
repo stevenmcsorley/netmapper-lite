@@ -172,6 +172,13 @@ class MainWindow(Gtk.Window):
         self.host_count_label = Gtk.Label(label="Hosts: 0")
         status_bar.append(self.host_count_label)
         
+        # Progress bar (hidden initially)
+        self.progress_bar = Gtk.ProgressBar()
+        self.progress_bar.set_hexpand(False)
+        self.progress_bar.set_visible(False)
+        self.progress_bar.set_show_text(True)
+        status_bar.append(self.progress_bar)
+        
         # Connection status
         conn_status = "🔴 Helper not available" if not os.path.exists(self.socket_path) else "🟢 Helper connected"
         self.conn_label = Gtk.Label(label=conn_status)
