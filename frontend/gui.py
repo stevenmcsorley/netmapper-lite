@@ -36,6 +36,7 @@ DB_PATH = "/var/lib/netmapper/netmapper.db"
 class MainWindow(Gtk.Window):
     def __init__(self, app):
         super().__init__(application=app, title='NetMapper-Lite')
+        # Window size will be set from preferences
         self.set_default_size(1200, 800)
         self.current_scan_id = None
         self._refresh_timeout_id = None  # For polling cleanup
@@ -70,6 +71,14 @@ class MainWindow(Gtk.Window):
             import traceback
             traceback.print_exc()
             raise
+        
+        # Restore window position/size
+        if self._window_prefs.get('x', -1) >= 0 and self._window_prefs.get('y', -1) >= 0:
+            self.move(self._window_prefs['x'], self._window_prefs['y'])
+        self.set_default_size(self._window_prefs['width'], self._window_prefs['height'])
+        
+        # Connect to window events for saving preferences
+        self.connect("close-request", self._on_window_close)
         
         # Setup auto-refresh
         self._refresh_timeout_id = None
@@ -1296,6 +1305,45 @@ class MainWindow(Gtk.Window):
             except Exception as e:
                 self._show_error_dialog("Error", f"Could not start helper automatically:\n{e}\n\nPlease start it manually.")
     
+    def _load_window_prefs(self):
+        """Load window preferences from config file."""
+        try:
+            if os.path.exists(self._config_file):
+                with open(self._config_file, 'r') as f:
+                    prefs = json.load(f)
+                    self._window_prefs.update(prefs.get('window', {}))
+        except Exception as e:
+            print(f"Error loading preferences: {e}")
+    
+    def _save_window_prefs(self):
+        """Save window preferences to config file."""
+        try:
+            # Get current window position and size
+            width = self.get_width()
+            height = self.get_height()
+            x, y = self.get_position()
+            
+            self._window_prefs.update({
+                'width': width,
+                'height': height,
+                'x': x,
+                'y': y
+            })
+            
+            prefs = {
+                'window': self._window_prefs
+            }
+            
+            with open(self._config_file, 'w') as f:
+                json.dump(prefs, f, indent=2)
+        except Exception as e:
+            print(f"Error saving preferences: {e}")
+    
+    def _on_window_close(self, window):
+        """Handle window close event - save preferences."""
+        self._save_window_prefs()
+        return False  # Allow window to close
+    
     def _load_scan_history(self):
         """Load recent scan history into sidebar."""
         result = self.send_request({"cmd": "list_history", "limit": 10})
@@ -1629,21 +1677,90 @@ class MainWindow(Gtk.Window):
         
         dialog.present()
     
+    def _load_nmap_history(self, ip, store):
+        """Load Nmap scan history for a host."""
+        result = self.send_request({
+            "cmd": "get_nmap_history",
+            "ip": ip,
+            "limit": 20
+        })
+        if result:
+            try:
+                j = json.loads(result)
+                if j.get('status') == 'ok':
+                    history = j.get('history', [])
+                    for entry in history:
+                        ts = entry.get('timestamp', 0)
+                        time_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(ts)) if ts else '-'
+                        ports = entry.get('ports', '')
+                        services = entry.get('services', '')
+                        display = ports if ports else services if services else 'No ports found'
+                        store.append([ts, time_str, display])
+            except:
+                pass
+    
     def on_nmap_clicked(self, btn):
         """Handle Nmap scan button click."""
         if not self.selected_host:
             return
         
         ip = self.selected_host['ip']
-        self.status_label.set_text(f"Running Nmap scan on {ip}...")
+        # Show port range dialog
+        dialog = Gtk.Dialog(title="Nmap Port Scan", transient_for=self, modal=True)
+        dialog.set_default_size(350, 150)
+        
+        vbox = dialog.get_content_area()
+        vbox.set_margin_start(20)
+        vbox.set_margin_end(20)
+        vbox.set_margin_top(20)
+        vbox.set_margin_bottom(20)
+        vbox.set_spacing(12)
+        
+        label = Gtk.Label(label=f"Scan ports on {ip}:")
+        label.set_halign(Gtk.Align.START)
+        vbox.append(label)
+        
+        port_entry = Gtk.Entry()
+        port_entry.set_text("1-1024")
+        port_entry.set_placeholder_text("e.g., 1-1024, 22,80,443, 8080-8090")
+        port_entry.set_hexpand(True)
+        vbox.append(port_entry)
+        
+        # Quick select buttons
+        quick_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        for ports, label_text in [("1-1024", "Common"), ("1-1000", "Fast"), ("1-65535", "All")]:
+            btn = Gtk.Button(label=label_text)
+            btn.connect('clicked', lambda b, p=ports: port_entry.set_text(p))
+            quick_box.append(btn)
+        vbox.append(quick_box)
+        
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Scan", Gtk.ResponseType.ACCEPT)
+        
+        def on_response(d, response_id):
+            if response_id == Gtk.ResponseType.ACCEPT:
+                ports = port_entry.get_text().strip()
+                if not ports:
+                    ports = "1-1024"
+                self._run_nmap_scan(ip, ports)
+            dialog.close()
+        
+        dialog.connect("response", on_response)
+        dialog.present()
+    
+    def _run_nmap_scan(self, ip, ports):
+        """Actually run the Nmap scan with specified ports."""
+        self.status_label.set_text(f"Running Nmap scan on {ip}:{ports}...")
         self.nmap_btn.set_sensitive(False)
         
         # Send Nmap request
         result = self.send_request({
             "cmd": "nmap",
             "ip": ip,
-            "ports": "1-1024"
+            "ports": ports
         })
+        
+        self.nmap_btn.set_sensitive(True)
         
         self.nmap_btn.set_sensitive(True)
         
