@@ -33,6 +33,7 @@ class MainWindow(Gtk.Window):
         self.set_default_size(1200, 800)
         self.current_scan_id = None
         self._refresh_timeout_id = None  # For polling cleanup
+        self._scan_cancelled = False  # Flag for cancel button
         
         # Detect socket path (prefer dev mode)
         self.socket_path = DEV_SOCKET_PATH if os.path.exists(DEV_SOCKET_PATH) else SOCKET_PATH
@@ -45,6 +46,13 @@ class MainWindow(Gtk.Window):
         self.map_zoom = 1.0  # Zoom level (1.0 = 100%)
         self.map_offset_x = 0.0  # Pan offset
         self.map_offset_y = 0.0
+        
+        # Initialize notifications
+        try:
+            Notify.init("NetMapper-Lite")
+            self.notifications_available = True
+        except:
+            self.notifications_available = False
         
         # Build UI
         try:
@@ -448,12 +456,17 @@ class MainWindow(Gtk.Window):
         zoom_box.append(reset_btn)
         map_box.append(zoom_box)
         
-        # Refresh button
-        refresh_btn = Gtk.Button(label="Refresh Map")
-        refresh_btn.connect('clicked', self._refresh_network_map)
-        map_box.append(refresh_btn)
-        
-        return map_frame
+           # Refresh button
+           refresh_btn = Gtk.Button(label="Refresh Map")
+           refresh_btn.connect('clicked', self._refresh_network_map)
+           map_box.append(refresh_btn)
+           
+           # Export map button
+           export_map_btn = Gtk.Button(label="Export Map as Image")
+           export_map_btn.connect('clicked', self._export_map_image)
+           map_box.append(export_map_btn)
+           
+           return map_frame
     
     def _refresh_network_map(self, btn):
         """Refresh the network map with current scan results."""
@@ -1071,12 +1084,15 @@ class MainWindow(Gtk.Window):
         
         self.scan_btn.set_sensitive(False)
         self.export_btn.set_sensitive(False)
+        self.cancel_scan_btn.set_visible(True)
+        self.cancel_scan_btn.set_sensitive(True)
         self.status_label.set_text('Starting scan...')
         # Show progress bar
         self.progress_bar.set_visible(True)
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_text("Starting scan...")
         self.current_cidr = cidr  # Store for subnet detection
+        self._scan_cancelled = False  # Reset cancel flag
         # Clear store by creating new one (clear() deprecated in GTK4)
         self.store = Gtk.ListStore(str, str, str, str)
         if hasattr(self, 'filter_model'):
@@ -1121,6 +1137,10 @@ class MainWindow(Gtk.Window):
 
     def _poll_for_results(self):
         """Poll database for scan results."""
+        # Check if scan was cancelled
+        if self._scan_cancelled:
+            return False
+        
         self._poll_attempts += 1
         
         if not self.current_scan_id:
@@ -1149,6 +1169,7 @@ class MainWindow(Gtk.Window):
                         self.status_label.set_text(f"Scan complete: {len(hosts)} hosts found")
                         self.scan_btn.set_sensitive(True)
                         self.export_btn.set_sensitive(True)
+                        self.cancel_scan_btn.set_visible(False)
                         # Hide progress bar
                         self.progress_bar.set_visible(False)
                         # Auto-generate and show network map
@@ -1156,6 +1177,8 @@ class MainWindow(Gtk.Window):
                         if self.map_drawing_area:
                             self.map_drawing_area.queue_draw()
                         self._load_scan_history()  # Refresh sidebar
+                        # Show desktop notification
+                        self._show_notification("Scan Complete", f"Found {len(hosts)} hosts")
                         return False
             except:
                 pass
@@ -1189,6 +1212,10 @@ class MainWindow(Gtk.Window):
         except Exception as e:
             print(f"Database access error: {e}")
         
+        # Check if cancelled
+        if self._scan_cancelled:
+            return False
+        
         # Keep polling if not done (max 60 attempts = 2 minutes)
         if self._poll_attempts < 60:
             elapsed = time.time() - getattr(self, '_poll_start_time', time.time())
@@ -1202,6 +1229,7 @@ class MainWindow(Gtk.Window):
             self.status_label.set_text("Scan timeout - check helper logs")
             self.progress_bar.set_visible(False)
             self.scan_btn.set_sensitive(True)
+            self.cancel_scan_btn.set_visible(False)
             return False
 
     def _update_results(self, hosts):
