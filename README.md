@@ -24,7 +24,8 @@ NetMapper-Lite is a two-process native Linux application:
 - **ARP network scanning** with hostname resolution
 - **OUI vendor lookup** - identify device manufacturers from MAC addresses
 - **Optional Nmap port scanning** - per-host port scans with service detection
-- **Network topology visualization** - interactive map showing gateway and connected devices
+- **Network topology visualization** - interactive map with zoom, pan, and clickable nodes
+- **Subnet detection** - automatically groups devices by subnetworks for better visualization
 - **Auto-detection** - automatically detects your network CIDR and gateway/router
 - **SQLite-based scan history** - browse past scans and results
 - **GTK4 native Linux UI** - modern, responsive desktop interface
@@ -200,12 +201,16 @@ sudo systemctl start netmapper-helper.service
    - Results appear automatically when scan completes
 
 4. **View network map**:
-   - After a scan completes, click the "Network Map" tab
+   - After a scan completes, the map auto-generates (or click "Refresh Map")
    - See your network topology with:
      - Gateway/router at the center (blue)
-     - All devices arranged in a circle (green)
+     - Devices arranged by subnet (green circles)
      - Connection lines showing network topology
-   - Click any device node to see detailed information
+     - Subnet clusters when multiple subnets detected
+   - **Interact with the map:**
+     - Click any device node to see detailed information
+     - Use "Zoom In" / "Zoom Out" buttons or mouse wheel
+     - Click "Reset View" to restore default zoom
    - The map auto-detects your actual gateway/router from the routing table
 
 ## Architecture
@@ -252,6 +257,12 @@ netmapper-lite/
 ├── packaging/
 │   ├── netmapper-helper.service
 │   └── install.sh
+├── tests/
+│   ├── mock_scanner.py          # Fake network data for testing
+│   ├── create_fake_network.sh   # Creates virtual network interfaces
+│   └── README_FAKE_NETWORK.md   # Fake network testing guide
+├── docs/
+│   └── SUBNET_DETECTION.md      # Subnet detection documentation
 ├── Makefile
 └── README.md
 ```
@@ -261,6 +272,34 @@ netmapper-lite/
 ```bash
 make test
 ```
+
+### Testing with Fake Network
+
+For testing and development without scanning real networks, you can use the mock scanner:
+
+```bash
+# Use mock mode (no root needed, instant results)
+NETMAPPER_MOCK_SCAN=1 ./netmapper
+
+# Then scan: 192.168.0.0/16 or 192.168.100.0/24
+# You'll get 26 fake devices across 3 subnets:
+#   - 192.168.100.0/24 (main network): 21 hosts
+#   - 192.168.101.0/24 (IoT subnet): 4 hosts  
+#   - 192.168.102.0/24 (guest subnet): 3 hosts
+```
+
+**Mock network includes:**
+- Gateway/router
+- Servers (web, database, backup)
+- IoT devices (smart TV, lights, cameras, hub)
+- Workstations (laptops, desktop)
+- Mobile devices (phones, tablet)
+- Printers
+- Guest devices
+
+Perfect for testing the network map visualization and UI features!
+
+See `tests/README_FAKE_NETWORK.md` for more details.
 
 ### Clean Build Artifacts
 

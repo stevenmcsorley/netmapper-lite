@@ -44,6 +44,8 @@
 
 ## Testing
 
+- [x] Mock scanner for fake network data (no root needed)
+- [x] Fake network scripts for testing
 - [ ] Unit tests for scanner functions with mocked scapy
 - [ ] Mock OUI database for tests
 - [ ] CI/CD pipeline (GitHub Actions)
