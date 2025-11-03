@@ -32,6 +32,7 @@ class MainWindow(Gtk.Window):
         super().__init__(application=app, title='NetMapper-Lite')
         self.set_default_size(1200, 800)
         self.current_scan_id = None
+        self._refresh_timeout_id = None  # For polling cleanup
         
         # Detect socket path (prefer dev mode)
         self.socket_path = DEV_SOCKET_PATH if os.path.exists(DEV_SOCKET_PATH) else SOCKET_PATH
@@ -524,16 +525,24 @@ class MainWindow(Gtk.Window):
             x = center_x + radius * math.cos(angle)
             y = center_y + radius * math.sin(angle)
             
-            # Determine node type
+            # Determine node type based on hostname and vendor
             node_type = 'device'
-            hostname = host.get('hostname') or ''
-            vendor = host.get('vendor') or ''
+            hostname = (host.get('hostname') or '').lower()
+            vendor = (host.get('vendor') or '').lower()
             
-            # Classify by vendor/type
-            if 'router' in hostname.lower() or 'gateway' in hostname.lower():
+            # Enhanced classification
+            if 'router' in hostname or 'gateway' in hostname or 'router' in vendor:
                 node_type = 'gateway'
-            elif 'server' in hostname.lower():
+            elif 'server' in hostname or 'db' in hostname or 'backup' in hostname or 'web' in hostname:
                 node_type = 'server'
+            elif any(x in hostname for x in ['camera', 'tv', 'light', 'thermostat', 'sensor', 'hub', 'iot']):
+                node_type = 'iot'
+            elif any(x in hostname for x in ['phone', 'tablet', 'mobile']):
+                node_type = 'mobile'
+            elif 'printer' in hostname:
+                node_type = 'printer'
+            elif vendor == 'unknown' or not vendor or vendor == '-':
+                node_type = 'unknown'
             
             self.network_nodes.append({
                 'x': x,
@@ -721,13 +730,22 @@ class MainWindow(Gtk.Window):
         
         # Draw nodes
         for node in self.network_nodes:
-            # Color by type
-            if node['type'] == 'gateway':
+            # Color by device type
+            node_type = node.get('type', 'device')
+            if node_type == 'gateway':
                 cr.set_source_rgb(0.2, 0.6, 0.9)  # Blue for gateway
-            elif node['type'] == 'server':
+            elif node_type == 'server':
                 cr.set_source_rgb(0.9, 0.6, 0.2)  # Orange for server
+            elif node_type == 'iot':
+                cr.set_source_rgb(0.7, 0.3, 0.9)  # Purple for IoT devices
+            elif node_type == 'mobile':
+                cr.set_source_rgb(0.9, 0.8, 0.2)  # Yellow for mobile
+            elif node_type == 'printer':
+                cr.set_source_rgb(0.3, 0.7, 0.9)  # Light blue for printers
+            elif node_type == 'unknown':
+                cr.set_source_rgb(0.6, 0.6, 0.6)  # Gray for unknown
             else:
-                cr.set_source_rgb(0.4, 0.7, 0.4)  # Green for devices
+                cr.set_source_rgb(0.4, 0.7, 0.4)  # Green for regular devices
             
             # Draw node circle
             cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
@@ -932,10 +950,19 @@ class MainWindow(Gtk.Window):
         self.scan_btn.set_sensitive(False)
         self.export_btn.set_sensitive(False)
         self.status_label.set_text('Starting scan...')
+        # Show progress bar
+        self.progress_bar.set_visible(True)
+        self.progress_bar.set_fraction(0.0)
+        self.progress_bar.set_text("Starting scan...")
         self.current_cidr = cidr  # Store for subnet detection
         # Clear store by creating new one (clear() deprecated in GTK4)
         self.store = Gtk.ListStore(str, str, str, str)
-        self.tree_view.set_model(self.store)
+        if hasattr(self, 'filter_model'):
+            self.filter_model = self.store.filter_new()
+            self.filter_model.set_visible_func(self._filter_func)
+            self.tree_view.set_model(self.filter_model)
+        else:
+            self.tree_view.set_model(self.store)
         
         # Send scan request
         result = self.send_request({"cmd": "scan", "cidr": cidr})
@@ -977,6 +1004,13 @@ class MainWindow(Gtk.Window):
         if not self.current_scan_id:
             return False
         
+        # Update progress bar (indeterminate for now, could be improved with real progress)
+        elapsed = time.time() - getattr(self, '_poll_start_time', time.time())
+        # Show progress with pulsing effect
+        if self.progress_bar.get_visible():
+            self.progress_bar.pulse()
+            self.progress_bar.set_text(f"Scanning... ({int(elapsed)}s)")
+        
         # Try to get results via helper API first
         result = self.send_request({
             "cmd": "get_results",
@@ -990,15 +1024,17 @@ class MainWindow(Gtk.Window):
                     hosts = j.get('results', [])
                     if hosts:
                         self._update_results(hosts)
-                    self.status_label.set_text(f"Scan complete: {len(hosts)} hosts found")
-                    self.scan_btn.set_sensitive(True)
-                    self.export_btn.set_sensitive(True)
-                    # Auto-generate and show network map
-                    self._generate_network_map(hosts)
-                    if self.map_drawing_area:
-                        self.map_drawing_area.queue_draw()
-                    self._load_scan_history()  # Refresh sidebar
-                    return False
+                        self.status_label.set_text(f"Scan complete: {len(hosts)} hosts found")
+                        self.scan_btn.set_sensitive(True)
+                        self.export_btn.set_sensitive(True)
+                        # Hide progress bar
+                        self.progress_bar.set_visible(False)
+                        # Auto-generate and show network map
+                        self._generate_network_map(hosts)
+                        if self.map_drawing_area:
+                            self.map_drawing_area.queue_draw()
+                        self._load_scan_history()  # Refresh sidebar
+                        return False
             except:
                 pass
         
@@ -1033,11 +1069,16 @@ class MainWindow(Gtk.Window):
         
         # Keep polling if not done (max 60 attempts = 2 minutes)
         if self._poll_attempts < 60:
-            self.status_label.set_text(f"Scanning... ({self._poll_attempts * 2}s)")
+            elapsed = time.time() - getattr(self, '_poll_start_time', time.time())
+            self.status_label.set_text(f"Scanning... ({int(elapsed)}s)")
+            if self.progress_bar.get_visible():
+                self.progress_bar.pulse()
+                self.progress_bar.set_text(f"Scanning... ({int(elapsed)}s)")
             self._refresh_timeout_id = GLib.timeout_add_seconds(2, self._poll_for_results)
             return False
         else:
             self.status_label.set_text("Scan timeout - check helper logs")
+            self.progress_bar.set_visible(False)
             self.scan_btn.set_sensitive(True)
             return False
 
@@ -1045,7 +1086,11 @@ class MainWindow(Gtk.Window):
         """Update tree view with scan results."""
         # Clear store - create new one to avoid deprecation warning
         self.store = Gtk.ListStore(str, str, str, str)
-        self.tree_view.set_model(self.store)
+        # Recreate filter model
+        self.filter_model = self.store.filter_new()
+        self.filter_model.set_visible_func(self._filter_func)
+        self.tree_view.set_model(self.filter_model)
+        
         for host in hosts:
             self.store.append([
                 host.get('ip', ''),
