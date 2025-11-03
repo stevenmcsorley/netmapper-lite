@@ -10,6 +10,11 @@ warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi')
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio, Gdk
+try:
+    from gi.repository import Notify
+    NOTIFY_AVAILABLE = True
+except ImportError:
+    NOTIFY_AVAILABLE = False
 import cairo
 import sys
 import json
@@ -48,11 +53,13 @@ class MainWindow(Gtk.Window):
         self.map_offset_y = 0.0
         
         # Initialize notifications
-        try:
-            Notify.init("NetMapper-Lite")
-            self.notifications_available = True
-        except:
-            self.notifications_available = False
+        self.notifications_available = False
+        if NOTIFY_AVAILABLE:
+            try:
+                Notify.init("NetMapper-Lite")
+                self.notifications_available = True
+            except:
+                pass
         
         # Build UI
         try:
@@ -456,17 +463,17 @@ class MainWindow(Gtk.Window):
         zoom_box.append(reset_btn)
         map_box.append(zoom_box)
         
-           # Refresh button
-           refresh_btn = Gtk.Button(label="Refresh Map")
-           refresh_btn.connect('clicked', self._refresh_network_map)
-           map_box.append(refresh_btn)
-           
-           # Export map button
-           export_map_btn = Gtk.Button(label="Export Map as Image")
-           export_map_btn.connect('clicked', self._export_map_image)
-           map_box.append(export_map_btn)
-           
-           return map_frame
+        # Refresh button
+        refresh_btn = Gtk.Button(label="Refresh Map")
+        refresh_btn.connect('clicked', self._refresh_network_map)
+        map_box.append(refresh_btn)
+        
+        # Export map button
+        export_map_btn = Gtk.Button(label="Export Map as Image")
+        export_map_btn.connect('clicked', self._export_map_image)
+        map_box.append(export_map_btn)
+        
+        return map_frame
     
     def _refresh_network_map(self, btn):
         """Refresh the network map with current scan results."""
@@ -1572,6 +1579,168 @@ class MainWindow(Gtk.Window):
         dialog.connect("response", lambda d, r: d.close())
         dialog.present()
 
+    def _export_map_image(self, btn):
+        """Export network map as PNG image."""
+        if not self.network_nodes:
+            self._show_info_dialog("No Map", "Please run a scan first to generate the network map.")
+            return
+        
+        # Create file chooser dialog
+        dialog = Gtk.FileChooserDialog(
+            title="Export Network Map",
+            transient_for=self,
+            action=Gtk.FileChooserAction.SAVE
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Save", Gtk.ResponseType.ACCEPT)
+        
+        # Set default filename
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        dialog.set_current_name(f"netmap_{timestamp}.png")
+        
+        # Add PNG filter
+        png_filter = Gtk.FileFilter()
+        png_filter.set_name("PNG Images")
+        png_filter.add_pattern("*.png")
+        dialog.add_filter(png_filter)
+        
+        response = dialog.show()
+        if response == Gtk.ResponseType.ACCEPT:
+            filename = dialog.get_file().get_path()
+            dialog.close()
+            
+            try:
+                # Get drawing area dimensions
+                width = self.map_drawing_area.get_allocated_width()
+                height = self.map_drawing_area.get_allocated_height()
+                if width == 0 or height == 0:
+                    width, height = 1200, 800  # Default size
+                
+                # Create surface for exporting
+                surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+                cr = cairo.Context(surface)
+                
+                # Fill white background
+                cr.set_source_rgb(1, 1, 1)
+                cr.paint()
+                
+                # Draw the map (reuse drawing code)
+                center_x, center_y = width / 2, height / 2
+                cr.translate(center_x, center_y)
+                cr.scale(self.map_zoom, self.map_zoom)
+                
+                # Draw connections
+                gateway_node = None
+                for node in self.network_nodes:
+                    if node.get('type') == 'gateway':
+                        gateway_node = node
+                        break
+                
+                if gateway_node:
+                    cr.set_source_rgba(0.7, 0.7, 0.7, 0.5)
+                    cr.set_line_width(1)
+                    for node in self.network_nodes:
+                        if node['type'] != 'gateway':
+                            cr.move_to(node['x'], node['y'])
+                            cr.line_to(gateway_node['x'], gateway_node['y'])
+                            cr.stroke()
+                
+                # Draw nodes
+                for node in self.network_nodes:
+                    node_type = node.get('type', 'device')
+                    if node_type == 'gateway':
+                        cr.set_source_rgb(0.2, 0.6, 0.9)
+                    elif node_type == 'server':
+                        cr.set_source_rgb(0.9, 0.6, 0.2)
+                    elif node_type == 'iot':
+                        cr.set_source_rgb(0.7, 0.3, 0.9)
+                    elif node_type == 'mobile':
+                        cr.set_source_rgb(0.9, 0.8, 0.2)
+                    elif node_type == 'printer':
+                        cr.set_source_rgb(0.3, 0.7, 0.9)
+                    elif node_type == 'unknown':
+                        cr.set_source_rgb(0.6, 0.6, 0.6)
+                    else:
+                        cr.set_source_rgb(0.4, 0.7, 0.4)
+                    
+                    cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
+                    cr.fill()
+                    
+                    cr.set_source_rgb(0.2, 0.2, 0.2)
+                    cr.set_line_width(2)
+                    cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
+                    cr.stroke()
+                    
+                    # Draw label
+                    cr.set_source_rgb(0, 0, 0)
+                    cr.select_font_face("Sans Bold")
+                    cr.set_font_size(10)
+                    label = node['ip'].split('.')[-1]
+                    (x, y, text_width, text_height, dx, dy) = cr.text_extents(label)
+                    cr.move_to(node['x'] - text_width / 2, node['y'] + node['radius'] + text_height + 5)
+                    cr.show_text(label)
+                
+                # Draw legend on exported image
+                cr.identity_matrix()
+                legend_x, legend_y = 10, 10
+                cr.set_source_rgba(1, 1, 1, 0.9)
+                cr.rectangle(legend_x, legend_y, 180, 150)
+                cr.fill()
+                cr.set_source_rgba(0, 0, 0, 0.3)
+                cr.set_line_width(1)
+                cr.rectangle(legend_x, legend_y, 180, 150)
+                cr.stroke()
+                
+                cr.set_source_rgb(0, 0, 0)
+                cr.select_font_face("Sans Bold")
+                cr.set_font_size(11)
+                cr.move_to(legend_x + 5, legend_y + 18)
+                cr.show_text("Device Types")
+                
+                legend_items = [
+                    ((0.2, 0.6, 0.9), "Gateway/Router"),
+                    ((0.9, 0.6, 0.2), "Server"),
+                    ((0.4, 0.7, 0.4), "Device"),
+                    ((0.7, 0.3, 0.9), "IoT"),
+                    ((0.9, 0.8, 0.2), "Mobile"),
+                    ((0.3, 0.7, 0.9), "Printer"),
+                    ((0.6, 0.6, 0.6), "Unknown"),
+                ]
+                
+                cr.select_font_face("Sans")
+                cr.set_font_size(9)
+                y_offset = 35
+                for color, label in legend_items:
+                    cr.set_source_rgb(*color)
+                    cr.arc(legend_x + 12, legend_y + y_offset, 5, 0, 2 * 3.14159)
+                    cr.fill()
+                    cr.set_source_rgb(0, 0, 0)
+                    cr.move_to(legend_x + 25, legend_y + y_offset + 4)
+                    cr.show_text(label)
+                    y_offset += 18
+                
+                # Write to file
+                surface.write_to_png(filename)
+                self.status_label.set_text(f"Map exported to {filename}")
+                self._show_info_dialog("Export Successful", f"Network map saved to:\n{filename}")
+                
+            except Exception as e:
+                self._show_error_dialog("Export Error", f"Failed to export map: {e}")
+        else:
+            dialog.close()
+    
+    def _show_notification(self, title, message):
+        """Show desktop notification."""
+        if not self.notifications_available or not NOTIFY_AVAILABLE:
+            return
+        
+        try:
+            notification = Notify.Notification.new(title, message, "network-wired")
+            notification.set_timeout(5000)  # 5 seconds
+            notification.show()
+        except Exception as e:
+            print(f"Notification error: {e}")
+    
     def send_request(self, obj):
         """Send JSON request to helper via UNIX socket."""
         if not os.path.exists(self.socket_path):
