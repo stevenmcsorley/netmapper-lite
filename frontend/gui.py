@@ -78,6 +78,9 @@ class MainWindow(Gtk.Window):
         # Connect to window events for saving preferences
         self.connect("close-request", self._on_window_close)
         
+        # Setup keyboard shortcuts
+        self._setup_keyboard_shortcuts()
+        
         # Setup auto-refresh
         self._refresh_timeout_id = None
 
@@ -136,7 +139,25 @@ class MainWindow(Gtk.Window):
             self.cidr_entry.set_text('192.168.1.0/24')
         self.cidr_entry.set_placeholder_text('e.g., 192.168.1.0/24')
         self.cidr_entry.set_hexpand(True)
+        
+        # Load last used CIDR or profiles
+        self._load_cidr_from_profiles()
+        
         input_box.append(self.cidr_entry)
+        
+        # Network profiles dropdown
+        self.profile_combo = Gtk.ComboBoxText()
+        self.profile_combo.set_tooltip_text("Select saved network profile")
+        self.profile_combo.connect("changed", self._on_profile_selected)
+        self._refresh_profiles()
+        input_box.append(self.profile_combo)
+        
+        # Save profile button
+        save_profile_btn = Gtk.Button(label="💾")
+        save_profile_btn.set_tooltip_text("Save current CIDR as profile")
+        save_profile_btn.connect('clicked', self._save_profile)
+        input_box.append(save_profile_btn)
+        
         control_box.append(input_box)
         
         # Scan button
@@ -205,6 +226,12 @@ class MainWindow(Gtk.Window):
         
         self.host_count_label = Gtk.Label(label="Hosts: 0")
         status_bar.append(self.host_count_label)
+        
+        # Theme toggle button
+        theme_btn = Gtk.Button(label="🌙 Theme")
+        theme_btn.connect('clicked', lambda b: self._toggle_dark_mode())
+        theme_btn.set_tooltip_text("Toggle dark/light theme (Auto/Dark/Light)")
+        status_bar.append(theme_btn)
         
         # Progress bar (hidden initially)
         self.progress_bar = Gtk.ProgressBar()
@@ -798,7 +825,8 @@ class MainWindow(Gtk.Window):
                 'vendor': gateway.get('vendor') or '',
                 'label': gateway_label,
                 'type': 'gateway',
-                'radius': 25
+                'radius': 25,
+                'port_count': self._get_port_count(gateway.get('ip', ''))
             })
             other_hosts = [h for h in hosts if h.get('ip') != gateway.get('ip')]
         else:
@@ -897,7 +925,8 @@ class MainWindow(Gtk.Window):
                 'label': gateway.get('hostname') or gateway.get('vendor') or 'Gateway',
                 'type': 'gateway',
                 'radius': 30,
-                'subnet': None
+                'subnet': None,
+                'port_count': self._get_port_count(gateway.get('ip', ''))
             })
         
         # Position each subnet in a circle around the center
@@ -960,7 +989,8 @@ class MainWindow(Gtk.Window):
                     'label': subnet_label,  # Show subnet info
                     'type': node_type,
                     'radius': 12,
-                    'subnet': subnet_cidr
+                    'subnet': subnet_cidr,
+                    'port_count': self._get_port_count(host.get('ip', ''))
                 })
         
         # Generate edges: hosts connect to gateway, subnets connect to gateway
@@ -1110,6 +1140,34 @@ class MainWindow(Gtk.Window):
                 (x, y, text_width, text_height, dx, dy) = cr.text_extents(hostname)
                 cr.move_to(node['x'] - text_width / 2, node['y'] - node['radius'] - 5)
                 cr.show_text(hostname)
+            
+            # Draw port count if available (small badge)
+            port_count = node.get('port_count', 0)
+            if port_count > 0:
+                # Draw small badge with port count
+                badge_radius = 8
+                badge_x = node['x'] + node['radius'] - badge_radius - 2
+                badge_y = node['y'] - node['radius'] + badge_radius + 2
+                
+                # Badge background (red/orange)
+                cr.set_source_rgb(0.9, 0.3, 0.2)
+                cr.arc(badge_x, badge_y, badge_radius, 0, 2 * 3.14159)
+                cr.fill()
+                
+                # Badge border
+                cr.set_source_rgb(0.7, 0.2, 0.1)
+                cr.set_line_width(1)
+                cr.arc(badge_x, badge_y, badge_radius, 0, 2 * 3.14159)
+                cr.stroke()
+                
+                # Port count text
+                cr.set_source_rgb(1, 1, 1)  # White text
+                cr.select_font_face("Sans Bold")
+                cr.set_font_size(8)
+                port_text = str(port_count) if port_count < 100 else "99+"
+                (x, y, text_width, text_height, dx, dy) = cr.text_extents(port_text)
+                cr.move_to(badge_x - text_width / 2, badge_y + text_height / 2 - 2)
+                cr.show_text(port_text)
         
         # Draw legend and zoom indicator
         cr.save()
@@ -1315,6 +1373,7 @@ class MainWindow(Gtk.Window):
                 with open(self._config_file, 'r') as f:
                     prefs = json.load(f)
                     self._window_prefs.update(prefs.get('window', {}))
+                    self._app_prefs.update(prefs.get('app', {}))
         except Exception as e:
             print(f"Error loading preferences: {e}")
     
@@ -1334,7 +1393,8 @@ class MainWindow(Gtk.Window):
             })
             
             prefs = {
-                'window': self._window_prefs
+                'window': self._window_prefs,
+                'app': self._app_prefs
             }
             
             with open(self._config_file, 'w') as f:
@@ -1349,6 +1409,192 @@ class MainWindow(Gtk.Window):
         if self._window_prefs.get('width', 1200) != 1200 or self._window_prefs.get('height', 800) != 800:
             self.set_default_size(self._window_prefs['width'], self._window_prefs['height'])
         return False  # Don't repeat
+    
+    def _load_cidr_from_profiles(self):
+        """Load last used CIDR or default."""
+        profiles = self._app_prefs.get('network_profiles', [])
+        if profiles:
+            # Use last scanned CIDR
+            last_cidr = self._app_prefs.get('last_cidr', '')
+            if last_cidr:
+                self.cidr_entry.set_text(last_cidr)
+            else:
+                # Use first profile
+                self.cidr_entry.set_text(profiles[0].get('cidr', ''))
+    
+    def _refresh_profiles(self):
+        """Refresh network profiles dropdown."""
+        self.profile_combo.remove_all()
+        self.profile_combo.append_text("-- Select Profile --")
+        profiles = self._app_prefs.get('network_profiles', [])
+        for profile in profiles:
+            self.profile_combo.append_text(f"{profile.get('name', 'Unnamed')} ({profile.get('cidr', '')})")
+        self.profile_combo.set_active(0)
+    
+    def _on_profile_selected(self, combo):
+        """Handle profile selection."""
+        active = combo.get_active()
+        if active > 0:  # Skip "-- Select Profile --"
+            profiles = self._app_prefs.get('network_profiles', [])
+            if active - 1 < len(profiles):
+                profile = profiles[active - 1]
+                self.cidr_entry.set_text(profile.get('cidr', ''))
+                self._app_prefs['last_cidr'] = profile.get('cidr', '')
+    
+    def _save_profile(self, btn):
+        """Save current CIDR as a profile."""
+        cidr = self.cidr_entry.get_text().strip()
+        if not cidr:
+            self._show_info_dialog("Save Profile", "Please enter a CIDR first.")
+            return
+        
+        # Show dialog to get profile name
+        dialog = Gtk.Dialog(title="Save Network Profile", transient_for=self, modal=True)
+        dialog.set_default_size(300, 150)
+        
+        vbox = dialog.get_content_area()
+        vbox.set_margin_start(20)
+        vbox.set_margin_end(20)
+        vbox.set_margin_top(20)
+        vbox.set_margin_bottom(20)
+        vbox.set_spacing(12)
+        
+        label = Gtk.Label(label="Profile Name:")
+        label.set_halign(Gtk.Align.START)
+        vbox.append(label)
+        
+        name_entry = Gtk.Entry()
+        name_entry.set_text(f"{cidr.replace('/', '_')}")
+        name_entry.set_hexpand(True)
+        vbox.append(name_entry)
+        
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        save_btn = dialog.add_button("Save", Gtk.ResponseType.ACCEPT)
+        save_btn.add_css_class("suggested-action")
+        
+        def on_response(d, response_id):
+            if response_id == Gtk.ResponseType.ACCEPT:
+                name = name_entry.get_text().strip()
+                if name:
+                    profiles = self._app_prefs.get('network_profiles', [])
+                    # Check if CIDR already exists
+                    existing = [p for p in profiles if p.get('cidr') == cidr]
+                    if existing:
+                        existing[0]['name'] = name
+                    else:
+                        profiles.append({'name': name, 'cidr': cidr})
+                    self._app_prefs['network_profiles'] = profiles
+                    self._save_window_prefs()
+                    self._refresh_profiles()
+                    self.status_label.set_text(f"Profile '{name}' saved")
+            dialog.close()
+        
+        dialog.connect("response", on_response)
+        dialog.present()
+    
+    def _apply_theme(self):
+        """Apply dark/light theme based on preferences."""
+        settings = Gtk.Settings.get_default()
+        dark_mode = self._app_prefs.get('dark_mode', 'auto')
+        
+        if dark_mode == 'auto':
+            # Detect system preference
+            try:
+                # Try to detect from GTK settings
+                system_dark = settings.get_property('gtk-application-prefer-dark-theme')
+                settings.set_property('gtk-application-prefer-dark-theme', system_dark)
+            except:
+                # Fallback: check environment
+                try:
+                    import subprocess
+                    result = subprocess.run(['gsettings', 'get', 'org.gnome.desktop.interface', 'color-scheme'],
+                                          capture_output=True, text=True, timeout=1)
+                    if 'dark' in result.stdout.lower():
+                        settings.set_property('gtk-application-prefer-dark-theme', True)
+                    else:
+                        settings.set_property('gtk-application-prefer-dark-theme', False)
+                except:
+                    pass
+        elif dark_mode == 'dark':
+            settings.set_property('gtk-application-prefer-dark-theme', True)
+        else:  # 'light'
+            settings.set_property('gtk-application-prefer-dark-theme', False)
+    
+    def _toggle_dark_mode(self):
+        """Toggle dark mode on/off."""
+        current = self._app_prefs.get('dark_mode', 'auto')
+        if current == 'auto':
+            self._app_prefs['dark_mode'] = 'dark'
+        elif current == 'dark':
+            self._app_prefs['dark_mode'] = 'light'
+        else:
+            self._app_prefs['dark_mode'] = 'auto'
+        
+        self._apply_theme()
+        self._save_window_prefs()
+        
+        mode_name = {'auto': 'Auto (System)', 'dark': 'Dark', 'light': 'Light'}[self._app_prefs['dark_mode']]
+        self.status_label.set_text(f"Theme: {mode_name}")
+    
+    def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts."""
+        # Create keyboard controller
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(key_controller)
+    
+    def _on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle keyboard shortcuts."""
+        # Check for Ctrl key
+        ctrl = (state & Gtk.accelerator_get_default_mod_mask()) == Gdk.ModifierType.CONTROL_MASK
+        
+        # Ctrl+S: Start scan
+        if ctrl and keyval == ord('s'):
+            if hasattr(self, 'scan_btn') and self.scan_btn.get_sensitive():
+                self.on_scan_clicked(self.scan_btn)
+            return True
+        
+        # Ctrl+F: Focus search
+        if ctrl and keyval == ord('f'):
+            if hasattr(self, 'search_entry'):
+                self.search_entry.grab_focus()
+            return True
+        
+        # Ctrl+E: Export
+        if ctrl and keyval == ord('e'):
+            if hasattr(self, 'export_btn') and self.export_btn.get_sensitive():
+                self.on_export_clicked(self.export_btn)
+            return True
+        
+        # Esc: Cancel scan
+        if keyval == 65307:  # Escape key code
+            if hasattr(self, 'cancel_scan_btn') and self.cancel_scan_btn.get_visible():
+                self.on_cancel_scan_clicked(self.cancel_scan_btn)
+            return True
+        
+        return False
+    
+    def _get_port_count(self, ip):
+        """Get port count for an IP from Nmap history."""
+        if not ip:
+            return 0
+        try:
+            result = self.send_request({
+                "cmd": "get_nmap_history",
+                "ip": ip,
+                "limit": 1
+            })
+            if result:
+                j = json.loads(result)
+                if j.get('status') == 'ok' and j.get('history'):
+                    latest = j.get('history')[0]
+                    ports = latest.get('ports', '')
+                    if ports:
+                        # Count ports (format: "22/tcp, 80/tcp, 443/tcp")
+                        return len([p for p in ports.split(',') if p.strip()])
+        except:
+            pass
+        return 0
     
     def _on_window_close(self, window):
         """Handle window close event - save preferences."""
@@ -1444,6 +1690,8 @@ class MainWindow(Gtk.Window):
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_text("Starting scan...")
         self.current_cidr = cidr  # Store for subnet detection
+        self._app_prefs['last_cidr'] = cidr  # Save as last used
+        self._save_window_prefs()
         self._scan_cancelled = False  # Reset cancel flag
         # Clear store by creating new one (clear() deprecated in GTK4)
         self.store = Gtk.ListStore(str, str, str, str)
@@ -1790,17 +2038,18 @@ class MainWindow(Gtk.Window):
         dialog.connect("response", on_response)
         dialog.present()
     
-    def _run_nmap_scan(self, ip, ports):
+    def _run_nmap_scan(self, ip, ports, template="common"):
         """Actually run the Nmap scan with specified ports."""
         self.status_label.set_text(f"Running Nmap scan on {ip}:{ports}...")
         self.nmap_btn.set_sensitive(False)
         
+        # Add version detection for service template
+        args = {"cmd": "nmap", "ip": ip, "ports": ports}
+        if template == "service":
+            args["args"] = "-sV"  # Version detection
+        
         # Send Nmap request
-        result = self.send_request({
-            "cmd": "nmap",
-            "ip": ip,
-            "ports": ports
-        })
+        result = self.send_request(args)
         
         self.nmap_btn.set_sensitive(True)
         
