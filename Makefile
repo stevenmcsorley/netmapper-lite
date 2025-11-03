@@ -67,6 +67,15 @@ test-scan-quick:
 	print('Response:', s.recv(4096).decode()); \
 	s.close()"
 
+build-appimage:
+	@echo "Building AppImage..."
+	bash packaging/build_appimage.sh
+
+package-deb:
+	@echo "Building .deb package (requires dpkg-deb)"
+	@echo "TODO: Implement .deb packaging"
+	@echo "See packaging/debian/ for packaging files"
+
 clean:
 	rm -rf backend/.venv frontend/.venv
 	rm -f /tmp/netmapper-helper.sock

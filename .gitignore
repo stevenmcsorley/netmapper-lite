@@ -36,4 +36,8 @@ Thumbs.db
 /tmp/netmapper-helper.sock
 /var/run/netmapper-helper.sock
 
+# Helper logs
+/tmp/helper.log
+/tmp/helper.pid
+
 
