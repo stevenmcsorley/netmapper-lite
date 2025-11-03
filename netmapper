@@ -23,10 +23,15 @@ fi
 if [ $NEED_SUDO -eq 1 ]; then
     echo "Starting helper with sudo (requires password)..."
     echo ""
-    # Start helper with sudo in background
-    sudo -b python3 backend/netmapper_helper.py --dev > /tmp/helper.log 2>&1
+    # Start helper with sudo in background, preserve NETMAPPER_MOCK_SCAN if set
+    if [ -n "$NETMAPPER_MOCK_SCAN" ]; then
+        sudo -b -E python3 backend/netmapper_helper.py --dev > /tmp/helper.log 2>&1
+    else
+        sudo -b python3 backend/netmapper_helper.py --dev > /tmp/helper.log 2>&1
+    fi
 else
     echo "Starting helper..."
+    # Preserve environment variables
     NETMAPPER_DEV=true python3 backend/netmapper_helper.py --dev > /tmp/helper.log 2>&1 &
 fi
 

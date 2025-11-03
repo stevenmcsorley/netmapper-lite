@@ -26,7 +26,6 @@ def arp_scan(cidr, timeout=2, mock_mode=False):
     if mock_mode or os.getenv("NETMAPPER_MOCK_SCAN") == "1":
         if "192.168.100" in cidr:
             import sys
-            import os
             mock_path = os.path.join(os.path.dirname(__file__), "..", "tests", "mock_scanner.py")
             if os.path.exists(mock_path):
                 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
