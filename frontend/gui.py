@@ -4,8 +4,12 @@ NetMapper-Lite GTK4 Frontend
 Desktop GUI for network mapping and scanning.
 """
 import warnings
-# Suppress GTK4 deprecation warnings for TreeView (still functional)
-warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi')
+# Suppress GTK4 deprecation warnings - TreeView API is deprecated but still functional
+# We'll migrate to ColumnView in a future version, but for now suppress warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+# Also suppress specific GTK warnings
+import os
+os.environ['PYTHONWARNINGS'] = 'ignore::DeprecationWarning'
 
 import gi
 gi.require_version('Gtk', '4.0')
