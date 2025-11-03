@@ -52,11 +52,9 @@ FAKE_NETWORK = {
     {"ip": "192.168.102.50", "mac": "00:00:00:00:02:50", "hostname": "guest-router.local", "vendor": "Router-Tech", "role": "gateway"},
     {"ip": "192.168.102.100", "mac": "00:00:00:00:02:01", "hostname": None, "vendor": "Unknown", "role": "guest"},
     {"ip": "192.168.102.101", "mac": "00:00:00:00:02:02", "hostname": None, "vendor": "Unknown", "role": "guest"},
-        {"ip": "192.168.100.50", "mac": "00:00:00:00:00:50", "hostname": "printer.office.local", "vendor": "HP-Printer", "role": "printer"},
-        {"ip": "192.168.100.51", "mac": "00:00:00:00:00:51", "hostname": "printer.home.local", "vendor": "Canon", "role": "printer"},
-        
-        # Smart hub
-        {"ip": "192.168.100.60", "mac": "00:00:00:00:00:60", "hostname": "smart-hub.local", "vendor": "HomeHub", "role": "iot"},
+    
+    # Smart hub
+    {"ip": "192.168.100.60", "mac": "00:00:00:00:00:60", "hostname": "smart-hub.local", "vendor": "HomeHub", "role": "iot"},
         
         # Guest devices
         {"ip": "192.168.100.100", "mac": "00:00:00:00:01:00", "hostname": None, "vendor": "Unknown", "role": "guest"},
