@@ -3,6 +3,10 @@
 NetMapper-Lite GTK4 Frontend
 Desktop GUI for network mapping and scanning.
 """
+import warnings
+# Suppress GTK4 deprecation warnings for TreeView (still functional)
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi')
+
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio
@@ -176,7 +180,9 @@ class MainWindow(Gtk.Window):
         
         self.scan_btn.set_sensitive(False)
         self.status_label.set_text('Starting scan...')
-        self.store.clear()
+        # Clear store by creating new one (clear() deprecated in GTK4)
+        self.store = Gtk.ListStore(str, str, str, str)
+        self.tree_view.set_model(self.store)
         
         # Send scan request
         result = self.send_request({"cmd": "scan", "cidr": cidr})
@@ -273,7 +279,10 @@ class MainWindow(Gtk.Window):
 
     def _update_results(self, hosts):
         """Update tree view with scan results."""
-        self.store.clear()
+        # Clear store - create new one to avoid deprecation warning
+        # self.store.clear()  # Deprecated in GTK4
+        self.store = Gtk.ListStore(str, str, str, str)
+        self.tree_view.set_model(self.store)
         for host in hosts:
             self.store.append([
                 host.get('ip', ''),
@@ -492,4 +501,3 @@ class NetMapperApp(Gtk.Application):
 if __name__ == '__main__':
     app = NetMapperApp()
     app.run(None)
-
