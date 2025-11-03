@@ -12,11 +12,12 @@ NetMapper-Lite is a two-process native Linux application:
    - Exposes a local IPC (UNIX domain socket) for communication
 
 2. **GTK Desktop Frontend**
-   - User interface with three main tabs:
+   - User interface with four main tabs:
      - **Scan Results**: View discovered hosts with IP, MAC, hostname, and vendor
      - **History**: Browse past scan results
-     - **Network Map**: Visual topology showing gateway and device connections
-   - Features: Nmap port scanning, export to JSON/CSV, host details dialog
+     - **Network Map**: Visual topology with hover tooltips and interactive nodes
+     - **Compare Scans**: Compare two scans to see network changes
+   - Features: Nmap port scanning (auto-saved), export to JSON/CSV, host details dialog
    - Runs as normal user; communicates with helper over UNIX socket
 
 ## Features
