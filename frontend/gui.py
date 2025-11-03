@@ -236,15 +236,43 @@ class MainWindow(Gtk.Window):
         """Build scan results tab."""
         results_frame = Gtk.Frame(label="Scan Results")
         
+        # Main vertical box
+        results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        results_box.set_margin_start(12)
+        results_box.set_margin_end(12)
+        results_box.set_margin_top(12)
+        results_box.set_margin_bottom(12)
+        results_frame.set_child(results_box)
+        
+        # Search/filter box
+        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        search_label = Gtk.Label(label="Filter:")
+        search_box.append(search_label)
+        
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search by IP, hostname, MAC, or vendor...")
+        self.search_entry.set_hexpand(True)
+        self.search_entry.connect("search-changed", self._on_search_changed)
+        search_box.append(self.search_entry)
+        
+        clear_btn = Gtk.Button(label="Clear")
+        clear_btn.connect('clicked', lambda b: self.search_entry.set_text(""))
+        search_box.append(clear_btn)
+        
+        results_box.append(search_box)
+        
         # Create list store: IP, MAC, Hostname, Vendor
         self.store = Gtk.ListStore(str, str, str, str)  # IP, MAC, Hostname, Vendor
+        # Filter model for search
+        self.filter_model = self.store.filter_new()
+        self.filter_model.set_visible_func(self._filter_func)
         
-        # TreeView
-        self.tree_view = Gtk.TreeView(model=self.store)
+        # TreeView with filtered model
+        self.tree_view = Gtk.TreeView(model=self.filter_model)
         self.tree_view.set_hexpand(True)
         self.tree_view.set_vexpand(True)
         
-        # Columns
+        # Columns (make them sortable)
         renderer = Gtk.CellRendererText()
         
         col = Gtk.TreeViewColumn(title="IP Address")
@@ -252,6 +280,7 @@ class MainWindow(Gtk.Window):
         col.add_attribute(renderer, "text", 0)
         col.set_sort_column_id(0)
         col.set_resizable(True)
+        col.set_sort_indicator(True)
         self.tree_view.append_column(col)
         
         col = Gtk.TreeViewColumn(title="MAC Address")
@@ -287,12 +316,33 @@ class MainWindow(Gtk.Window):
         scroll.set_child(self.tree_view)
         scroll.set_hexpand(True)
         scroll.set_vexpand(True)
-        results_frame.set_child(scroll)
+        results_box.append(scroll)
         
         # Store selected host
         self.selected_host = None
         
         return results_frame
+    
+    def _filter_func(self, model, tree_iter, data):
+        """Filter function for search."""
+        search_text = self.search_entry.get_text().lower()
+        if not search_text:
+            return True
+        
+        # Check all columns
+        ip = model[tree_iter][0].lower()
+        mac = model[tree_iter][1].lower()
+        hostname = model[tree_iter][2].lower() if model[tree_iter][2] else ""
+        vendor = model[tree_iter][3].lower() if model[tree_iter][3] else ""
+        
+        return (search_text in ip or 
+                search_text in mac or 
+                search_text in hostname or 
+                search_text in vendor)
+    
+    def _on_search_changed(self, entry):
+        """Handle search text change."""
+        self.filter_model.refilter()
     
     def _build_history_tab(self):
         """Build history tab."""
@@ -774,6 +824,71 @@ class MainWindow(Gtk.Window):
                 (x, y, text_width, text_height, dx, dy) = cr.text_extents(hostname)
                 cr.move_to(node['x'] - text_width / 2, node['y'] - node['radius'] - 5)
                 cr.show_text(hostname)
+        
+        # Draw legend and zoom indicator
+        cr.save()
+        cr.identity_matrix()  # Reset to screen coordinates
+        
+        # Get drawing area size
+        width = self.map_drawing_area.get_allocated_width()
+        height = self.map_drawing_area.get_allocated_height()
+        
+        # Draw legend box
+        legend_x = 10
+        legend_y = 10
+        legend_width = 180
+        legend_height = 150
+        
+        # Legend background
+        cr.set_source_rgba(1, 1, 1, 0.9)
+        cr.rectangle(legend_x, legend_y, legend_width, legend_height)
+        cr.fill()
+        cr.set_source_rgba(0, 0, 0, 0.3)
+        cr.set_line_width(1)
+        cr.rectangle(legend_x, legend_y, legend_width, legend_height)
+        cr.stroke()
+        
+        # Legend title
+        cr.set_source_rgb(0, 0, 0)
+        cr.select_font_face("Sans Bold")
+        cr.set_font_size(11)
+        cr.move_to(legend_x + 5, legend_y + 18)
+        cr.show_text("Device Types")
+        
+        # Legend items
+        legend_items = [
+            ((0.2, 0.6, 0.9), "Gateway/Router"),
+            ((0.9, 0.6, 0.2), "Server"),
+            ((0.4, 0.7, 0.4), "Device"),
+            ((0.7, 0.3, 0.9), "IoT"),
+            ((0.9, 0.8, 0.2), "Mobile"),
+            ((0.3, 0.7, 0.9), "Printer"),
+            ((0.6, 0.6, 0.6), "Unknown"),
+        ]
+        
+        cr.select_font_face("Sans")
+        cr.set_font_size(9)
+        y_offset = 35
+        for color, label in legend_items:
+            # Color dot
+            cr.set_source_rgb(*color)
+            cr.arc(legend_x + 12, legend_y + y_offset, 5, 0, 2 * 3.14159)
+            cr.fill()
+            # Label
+            cr.set_source_rgb(0, 0, 0)
+            cr.move_to(legend_x + 25, legend_y + y_offset + 4)
+            cr.show_text(label)
+            y_offset += 18
+        
+        # Zoom indicator
+        cr.set_source_rgba(0, 0, 0, 0.5)
+        cr.select_font_face("Sans")
+        cr.set_font_size(10)
+        zoom_text = f"Zoom: {int(self.map_zoom * 100)}%"
+        cr.move_to(10, height - 10)
+        cr.show_text(zoom_text)
+        
+        cr.restore()
     
     def _on_map_clicked(self, gesture, n_press, x, y):
         """Handle mouse click on network map."""
