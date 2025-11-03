@@ -38,18 +38,20 @@ FAKE_NETWORK = {
     {"ip": "192.168.100.41", "mac": "00:00:00:00:00:41", "hostname": "phone-bob.local", "vendor": "Samsung", "role": "mobile"},
     {"ip": "192.168.100.42", "mac": "00:00:00:00:00:42", "hostname": "tablet.local", "vendor": "Apple", "role": "mobile"},
     
-    # Subnet 1: IoT devices (192.168.101.0/24)
+    # Printers
+    {"ip": "192.168.100.50", "mac": "00:00:00:00:00:50", "hostname": "printer.office.local", "vendor": "HP-Printer", "role": "printer"},
+    {"ip": "192.168.100.51", "mac": "00:00:00:00:00:51", "hostname": "printer.home.local", "vendor": "Canon", "role": "printer"},
+    
+    # Subnet 1: IoT devices (192.168.101.0/24) - nested subnet
     {"ip": "192.168.101.10", "mac": "00:00:00:00:01:10", "hostname": "iot-gateway.local", "vendor": "IoT-Hub", "role": "gateway"},
     {"ip": "192.168.101.20", "mac": "00:00:00:00:01:20", "hostname": "sensor-1.local", "vendor": "IoT-Sensors", "role": "iot"},
     {"ip": "192.168.101.21", "mac": "00:00:00:00:01:21", "hostname": "sensor-2.local", "vendor": "IoT-Sensors", "role": "iot"},
     {"ip": "192.168.101.22", "mac": "00:00:00:00:01:22", "hostname": "thermostat.local", "vendor": "SmartHome", "role": "iot"},
     
-    # Subnet 2: Guest network (192.168.102.0/24)
+    # Subnet 2: Guest network (192.168.102.0/24) - nested subnet
     {"ip": "192.168.102.50", "mac": "00:00:00:00:02:50", "hostname": "guest-router.local", "vendor": "Router-Tech", "role": "gateway"},
     {"ip": "192.168.102.100", "mac": "00:00:00:00:02:01", "hostname": None, "vendor": "Unknown", "role": "guest"},
     {"ip": "192.168.102.101", "mac": "00:00:00:00:02:02", "hostname": None, "vendor": "Unknown", "role": "guest"},
-        
-        # Printers
         {"ip": "192.168.100.50", "mac": "00:00:00:00:00:50", "hostname": "printer.office.local", "vendor": "HP-Printer", "role": "printer"},
         {"ip": "192.168.100.51", "mac": "00:00:00:00:00:51", "hostname": "printer.home.local", "vendor": "Canon", "role": "printer"},
         
