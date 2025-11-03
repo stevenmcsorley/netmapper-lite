@@ -1,17 +1,28 @@
 [Unit]
-Description=NetMapper Helper Service
+Description=NetMapper-Lite Helper Service
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+# Run as root with minimal capabilities (preferred for network scanning)
+# Alternative: Create netmapper user and use setcap on helper binary
 User=root
-Group=netmapper
+Group=root
+
+# Helper binary path (adjust if using setcap approach)
 ExecStart=/usr/bin/env python3 /usr/lib/netmapper/netmapper_helper.py
 Restart=on-failure
+RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
+# Security hardening
+ProtectSystem=full
+PrivateTmp=yes
+NoNewPrivileges=yes
+# Keep network capabilities for ARP scanning
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
 [Install]
 WantedBy=multi-user.target
-
-
