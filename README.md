@@ -42,17 +42,19 @@ NetMapper-Lite is a two-process native Linux application:
 - **Sortable columns** - click column headers to sort results
 - **Progress indicator** - shows scan progress with elapsed time
 - **Desktop notifications** - alerts when scans complete
+- **Window persistence** - remembers window size and position across sessions
 - **GTK4 native Linux UI** - modern, responsive desktop interface
 - **Scan history** - browse past scans and results in sidebar
-- **Host details dialog** - double-click hosts for detailed information
+- **Host details dialog** - double-click hosts for detailed information with Nmap history
 
 ### Data Management
 - **SQLite-based scan history** - persistent storage of all scans
 - **Nmap results storage** - automatically saves port scans to database
+- **Nmap history per host** - view past port scans for any device in host details
 - **Scan comparison/diff** - compare two scans to see what changed
 - **Export functionality** - save scan results as JSON or CSV
 - **Nmap results display** - view open ports and services per host
-- **Nmap history** - retrieve past port scan results for any host
+- **Custom Nmap port ranges** - choose specific ports or ranges to scan
 
 ### Security & Operations
 - **Secure privilege separation** - helper runs with minimal capabilities
