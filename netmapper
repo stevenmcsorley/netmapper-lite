@@ -11,7 +11,8 @@ echo ""
 # Stop any existing helper
 pkill -f netmapper_helper.py 2>/dev/null || true
 sleep 1
-rm -f /tmp/netmapper-helper.sock
+# Remove socket (may need sudo if created by root)
+sudo rm -f /tmp/netmapper-helper.sock 2>/dev/null || rm -f /tmp/netmapper-helper.sock 2>/dev/null || true
 
 # Check if we need sudo for helper
 NEED_SUDO=0
@@ -57,6 +58,8 @@ python3 frontend/gui.py
 echo ""
 echo "Cleaning up..."
 pkill -f netmapper_helper.py 2>/dev/null || true
-rm -f /tmp/netmapper-helper.sock
+sleep 1
+# Remove socket (may need sudo if created by root)
+sudo rm -f /tmp/netmapper-helper.sock 2>/dev/null || rm -f /tmp/netmapper-helper.sock 2>/dev/null || true
 echo "Done."
 
