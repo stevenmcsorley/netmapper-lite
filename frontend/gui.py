@@ -11,6 +11,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio, Gdk
 import cairo
+import sys
 import json
 import socket
 import os
@@ -37,7 +38,13 @@ class MainWindow(Gtk.Window):
         self.db_path = DEV_DB_PATH if os.path.exists(DEV_DB_PATH) else DB_PATH
         
         # Build UI
-        self._build_ui()
+        try:
+            self._build_ui()
+        except Exception as e:
+            print(f"Error building UI: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
         # Setup auto-refresh
         self._refresh_timeout_id = None
@@ -1076,10 +1083,28 @@ class NetMapperApp(Gtk.Application):
 
     def do_activate(self):
         if not self.window:
-            self.window = MainWindow(self)
+            try:
+                self.window = MainWindow(self)
+            except Exception as e:
+                print(f"Error creating window: {e}")
+                import traceback
+                traceback.print_exc()
+                return
         self.window.present()
 
 
 if __name__ == '__main__':
-    app = NetMapperApp()
-    app.run(None)
+    import os
+    if 'DISPLAY' not in os.environ:
+        print("Error: DISPLAY environment variable not set")
+        print("GUI applications require X11 or Wayland display")
+        sys.exit(1)
+    
+    try:
+        app = NetMapperApp()
+        app.run(None)
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

@@ -51,8 +51,21 @@ echo ""
 echo "Starting GUI..."
 echo ""
 
+# Check DISPLAY
+if [ -z "$DISPLAY" ]; then
+    echo "⚠️  Warning: DISPLAY not set. Trying :0..."
+    export DISPLAY=:0
+fi
+
 # Start GUI (foreground)
-python3 frontend/gui.py
+python3 frontend/gui.py 2>&1
+GUI_EXIT=$?
+
+if [ $GUI_EXIT -ne 0 ]; then
+    echo ""
+    echo "⚠️  GUI exited with error code $GUI_EXIT"
+    echo "Check if DISPLAY is set: echo \$DISPLAY"
+fi
 
 # When GUI closes, cleanup
 echo ""
