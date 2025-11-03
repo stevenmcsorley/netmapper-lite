@@ -1889,12 +1889,10 @@ class MainWindow(Gtk.Window):
                         self._generate_network_map(hosts)
                         if self.map_drawing_area:
                             self.map_drawing_area.queue_draw()
-                        # Load port counts asynchronously (non-blocking) - only if not too many nodes
-                        if len(hosts) <= 20:  # Only load port counts for smaller networks
-                            GLib.idle_add(self._load_port_counts_async)
-                        else:
-                            # Too many nodes - skip port count loading to avoid timeouts
-                            print(f"⚠️  Skipping port count loading for {len(hosts)} hosts (too many)")
+                        # Port count loading disabled by default to prevent socket timeouts
+                        # Can be enabled later when backend performance improves
+                        # if len(hosts) <= 10:  # Only for very small networks
+                        #     GLib.idle_add(self._load_port_counts_async)
                         self._load_scan_history()  # Refresh sidebar
                         # Show desktop notification
                         self._show_notification("Scan Complete", f"Found {len(hosts)} hosts")
@@ -2587,10 +2585,10 @@ class MainWindow(Gtk.Window):
             s.close()
             return data
         except (ConnectionRefusedError, FileNotFoundError, socket.timeout, socket.error) as e:
-            if isinstance(e, socket.timeout):
-                print(f"Socket error: timed out")
-            else:
+            # Only print socket errors for important operations (not port count lookups)
+            if not isinstance(e, socket.timeout):
                 print(f"Socket error: {e}")
+            # Timeout errors are silent to avoid spam
             return None
         except Exception as e:
             print(f"Request error: {e}")
