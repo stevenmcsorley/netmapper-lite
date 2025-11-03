@@ -1622,6 +1622,7 @@ class MainWindow(Gtk.Window):
         dialog = Gtk.FileChooserDialog(
             title="Export Network Map",
             transient_for=self,
+            modal=True,
             action=Gtk.FileChooserAction.SAVE
         )
         dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
@@ -1637,130 +1638,145 @@ class MainWindow(Gtk.Window):
         png_filter.add_pattern("*.png")
         dialog.add_filter(png_filter)
         
-        response = dialog.show()
-        if response == Gtk.ResponseType.ACCEPT:
-            filename = dialog.get_file().get_path()
-            dialog.close()
+        def on_response(dialog, response_id):
+            if response_id == Gtk.ResponseType.ACCEPT:
+                file = dialog.get_file()
+                if file:
+                    filename = file.get_path()
+                    dialog.close()
+                    
+                    try:
+                        self._do_export_map(filename)
+                    except Exception as e:
+                        self._show_error_dialog("Export Error", f"Failed to export map: {e}")
+                else:
+                    dialog.close()
+            else:
+                dialog.close()
+        
+        dialog.connect("response", on_response)
+        dialog.present()
+    
+    def _do_export_map(self, filename):
+        """Actually perform the map export."""
+        try:
+            # Get drawing area dimensions
+            width = self.map_drawing_area.get_allocated_width()
+            height = self.map_drawing_area.get_allocated_height()
+            if width == 0 or height == 0:
+                width, height = 1200, 800  # Default size
             
-            try:
-                # Get drawing area dimensions
-                width = self.map_drawing_area.get_allocated_width()
-                height = self.map_drawing_area.get_allocated_height()
-                if width == 0 or height == 0:
-                    width, height = 1200, 800  # Default size
-                
-                # Create surface for exporting
-                surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-                cr = cairo.Context(surface)
-                
-                # Fill white background
-                cr.set_source_rgb(1, 1, 1)
-                cr.paint()
-                
-                # Draw the map (reuse drawing code)
-                center_x, center_y = width / 2, height / 2
-                cr.translate(center_x, center_y)
-                cr.scale(self.map_zoom, self.map_zoom)
-                
-                # Draw connections
-                gateway_node = None
-                for node in self.network_nodes:
-                    if node.get('type') == 'gateway':
-                        gateway_node = node
-                        break
-                
-                if gateway_node:
-                    cr.set_source_rgba(0.7, 0.7, 0.7, 0.5)
-                    cr.set_line_width(1)
-                    for node in self.network_nodes:
-                        if node['type'] != 'gateway':
-                            cr.move_to(node['x'], node['y'])
-                            cr.line_to(gateway_node['x'], gateway_node['y'])
-                            cr.stroke()
-                
-                # Draw nodes
-                for node in self.network_nodes:
-                    node_type = node.get('type', 'device')
-                    if node_type == 'gateway':
-                        cr.set_source_rgb(0.2, 0.6, 0.9)
-                    elif node_type == 'server':
-                        cr.set_source_rgb(0.9, 0.6, 0.2)
-                    elif node_type == 'iot':
-                        cr.set_source_rgb(0.7, 0.3, 0.9)
-                    elif node_type == 'mobile':
-                        cr.set_source_rgb(0.9, 0.8, 0.2)
-                    elif node_type == 'printer':
-                        cr.set_source_rgb(0.3, 0.7, 0.9)
-                    elif node_type == 'unknown':
-                        cr.set_source_rgb(0.6, 0.6, 0.6)
-                    else:
-                        cr.set_source_rgb(0.4, 0.7, 0.4)
-                    
-                    cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
-                    cr.fill()
-                    
-                    cr.set_source_rgb(0.2, 0.2, 0.2)
-                    cr.set_line_width(2)
-                    cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
-                    cr.stroke()
-                    
-                    # Draw label
-                    cr.set_source_rgb(0, 0, 0)
-                    cr.select_font_face("Sans Bold")
-                    cr.set_font_size(10)
-                    label = node['ip'].split('.')[-1]
-                    (x, y, text_width, text_height, dx, dy) = cr.text_extents(label)
-                    cr.move_to(node['x'] - text_width / 2, node['y'] + node['radius'] + text_height + 5)
-                    cr.show_text(label)
-                
-                # Draw legend on exported image
-                cr.identity_matrix()
-                legend_x, legend_y = 10, 10
-                cr.set_source_rgba(1, 1, 1, 0.9)
-                cr.rectangle(legend_x, legend_y, 180, 150)
-                cr.fill()
-                cr.set_source_rgba(0, 0, 0, 0.3)
+            # Create surface for exporting
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+            cr = cairo.Context(surface)
+            
+            # Fill white background
+            cr.set_source_rgb(1, 1, 1)
+            cr.paint()
+            
+            # Draw the map (reuse drawing code)
+            center_x, center_y = width / 2, height / 2
+            cr.translate(center_x, center_y)
+            cr.scale(self.map_zoom, self.map_zoom)
+            
+            # Draw connections
+            gateway_node = None
+            for node in self.network_nodes:
+                if node.get('type') == 'gateway':
+                    gateway_node = node
+                    break
+            
+            if gateway_node:
+                cr.set_source_rgba(0.7, 0.7, 0.7, 0.5)
                 cr.set_line_width(1)
-                cr.rectangle(legend_x, legend_y, 180, 150)
+                for node in self.network_nodes:
+                    if node['type'] != 'gateway':
+                        cr.move_to(node['x'], node['y'])
+                        cr.line_to(gateway_node['x'], gateway_node['y'])
+                        cr.stroke()
+            
+            # Draw nodes
+            for node in self.network_nodes:
+                node_type = node.get('type', 'device')
+                if node_type == 'gateway':
+                    cr.set_source_rgb(0.2, 0.6, 0.9)
+                elif node_type == 'server':
+                    cr.set_source_rgb(0.9, 0.6, 0.2)
+                elif node_type == 'iot':
+                    cr.set_source_rgb(0.7, 0.3, 0.9)
+                elif node_type == 'mobile':
+                    cr.set_source_rgb(0.9, 0.8, 0.2)
+                elif node_type == 'printer':
+                    cr.set_source_rgb(0.3, 0.7, 0.9)
+                elif node_type == 'unknown':
+                    cr.set_source_rgb(0.6, 0.6, 0.6)
+                else:
+                    cr.set_source_rgb(0.4, 0.7, 0.4)
+                
+                cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
+                cr.fill()
+                
+                cr.set_source_rgb(0.2, 0.2, 0.2)
+                cr.set_line_width(2)
+                cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
                 cr.stroke()
                 
+                # Draw label
                 cr.set_source_rgb(0, 0, 0)
                 cr.select_font_face("Sans Bold")
-                cr.set_font_size(11)
-                cr.move_to(legend_x + 5, legend_y + 18)
-                cr.show_text("Device Types")
-                
-                legend_items = [
-                    ((0.2, 0.6, 0.9), "Gateway/Router"),
-                    ((0.9, 0.6, 0.2), "Server"),
-                    ((0.4, 0.7, 0.4), "Device"),
-                    ((0.7, 0.3, 0.9), "IoT"),
-                    ((0.9, 0.8, 0.2), "Mobile"),
-                    ((0.3, 0.7, 0.9), "Printer"),
-                    ((0.6, 0.6, 0.6), "Unknown"),
-                ]
-                
-                cr.select_font_face("Sans")
-                cr.set_font_size(9)
-                y_offset = 35
-                for color, label in legend_items:
-                    cr.set_source_rgb(*color)
-                    cr.arc(legend_x + 12, legend_y + y_offset, 5, 0, 2 * 3.14159)
-                    cr.fill()
-                    cr.set_source_rgb(0, 0, 0)
-                    cr.move_to(legend_x + 25, legend_y + y_offset + 4)
-                    cr.show_text(label)
-                    y_offset += 18
-                
-                # Write to file
-                surface.write_to_png(filename)
-                self.status_label.set_text(f"Map exported to {filename}")
-                self._show_info_dialog("Export Successful", f"Network map saved to:\n{filename}")
-                
-            except Exception as e:
-                self._show_error_dialog("Export Error", f"Failed to export map: {e}")
-        else:
-            dialog.close()
+                cr.set_font_size(10)
+                label = node['ip'].split('.')[-1]
+                (x, y, text_width, text_height, dx, dy) = cr.text_extents(label)
+                cr.move_to(node['x'] - text_width / 2, node['y'] + node['radius'] + text_height + 5)
+                cr.show_text(label)
+            
+            # Draw legend on exported image
+            cr.identity_matrix()
+            legend_x, legend_y = 10, 10
+            cr.set_source_rgba(1, 1, 1, 0.9)
+            cr.rectangle(legend_x, legend_y, 180, 150)
+            cr.fill()
+            cr.set_source_rgba(0, 0, 0, 0.3)
+            cr.set_line_width(1)
+            cr.rectangle(legend_x, legend_y, 180, 150)
+            cr.stroke()
+            
+            cr.set_source_rgb(0, 0, 0)
+            cr.select_font_face("Sans Bold")
+            cr.set_font_size(11)
+            cr.move_to(legend_x + 5, legend_y + 18)
+            cr.show_text("Device Types")
+            
+            legend_items = [
+                ((0.2, 0.6, 0.9), "Gateway/Router"),
+                ((0.9, 0.6, 0.2), "Server"),
+                ((0.4, 0.7, 0.4), "Device"),
+                ((0.7, 0.3, 0.9), "IoT"),
+                ((0.9, 0.8, 0.2), "Mobile"),
+                ((0.3, 0.7, 0.9), "Printer"),
+                ((0.6, 0.6, 0.6), "Unknown"),
+            ]
+            
+            cr.select_font_face("Sans")
+            cr.set_font_size(9)
+            y_offset = 35
+            for color, label in legend_items:
+                cr.set_source_rgb(*color)
+                cr.arc(legend_x + 12, legend_y + y_offset, 5, 0, 2 * 3.14159)
+                cr.fill()
+                cr.set_source_rgb(0, 0, 0)
+                cr.move_to(legend_x + 25, legend_y + y_offset + 4)
+                cr.show_text(label)
+                y_offset += 18
+            
+            # Write to file
+            surface.write_to_png(filename)
+            self.status_label.set_text(f"Map exported to {filename}")
+            self._show_info_dialog("Export Successful", f"Network map saved to:\n{filename}")
+            
+        except Exception as e:
+            self._show_error_dialog("Export Error", f"Failed to export map: {e}")
+            raise
     
     def _show_notification(self, title, message):
         """Show desktop notification."""
