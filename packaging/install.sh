@@ -77,27 +77,56 @@ if [ -e "$SOCKET_PATH" ]; then
     echo "✓ Existing socket permissions updated"
 fi
 
-# Set capabilities on Python (or use compiled helper)
+# Set capabilities on helper binary (better than setting on Python itself)
 # Note: For production, prefer compiled helper with capabilities
 echo "Setting network capabilities..."
 if command -v setcap > /dev/null; then
-    if setcap cap_net_raw,cap_net_admin+eip /usr/bin/python3 2>/dev/null; then
-        echo "✓ Network capabilities set on Python"
+    HELPER_BINARY="/usr/lib/netmapper/netmapper_helper.py"
+    # Try to set capabilities on the helper script (requires Python interpreter path in shebang)
+    # Alternative: set on a wrapper binary or use systemd capabilities
+    PYTHON_PATH=$(which python3)
+    if [ -n "$PYTHON_PATH" ]; then
+        # Try setting capabilities on Python interpreter (if allowed)
+        if setcap cap_net_raw,cap_net_admin+eip "$PYTHON_PATH" 2>/dev/null; then
+            echo "✓ Network capabilities set on Python interpreter"
+        else
+            echo "⚠ Warning: Could not set capabilities on Python (may require root or different approach)"
+            echo "  The helper will run as root via systemd (which is acceptable for this service)"
+            echo "  For better security, consider compiling a small helper binary with capabilities"
+        fi
     else
-        echo "⚠ Warning: Could not set capabilities. Helper will run as root."
-        echo "  Consider compiling a small helper binary for production use."
+        echo "⚠ Warning: Could not find python3. Helper will run as root."
     fi
 else
-    echo "⚠ Warning: setcap not found. Helper will run as root."
+    echo "⚠ Warning: setcap not found. Helper will run as root via systemd."
 fi
 
 # Install Python dependencies if needed
 echo "Checking Python dependencies..."
 if command -v pip3 > /dev/null; then
     echo "  Installing backend dependencies..."
-    pip3 install --quiet scapy pyyaml 2>/dev/null || echo "  ⚠ Warning: Could not install dependencies via pip3"
+    # Try pip3 install, fallback to python3 -m pip
+    if pip3 install --quiet --user scapy pyyaml 2>/dev/null; then
+        echo "✓ Backend dependencies installed"
+    elif python3 -m pip install --quiet --user scapy pyyaml 2>/dev/null; then
+        echo "✓ Backend dependencies installed (via python3 -m pip)"
+    else
+        echo "  ⚠ Warning: Could not install dependencies automatically"
+        echo "  Please install manually: pip3 install scapy pyyaml"
+        echo "  Or use system package manager: sudo apt-get install python3-scapy python3-yaml"
+    fi
+elif python3 -m pip --version >/dev/null 2>&1; then
+    echo "  Installing backend dependencies (via python3 -m pip)..."
+    if python3 -m pip install --quiet --user scapy pyyaml 2>/dev/null; then
+        echo "✓ Backend dependencies installed"
+    else
+        echo "  ⚠ Warning: Could not install dependencies automatically"
+        echo "  Please install manually: python3 -m pip install scapy pyyaml"
+    fi
 else
-    echo "  ⚠ Warning: pip3 not found. Please install dependencies manually."
+    echo "  ⚠ Warning: pip3 not found. Please install dependencies manually:"
+    echo "    sudo apt-get install python3-scapy python3-yaml"
+    echo "    or: pip3 install scapy pyyaml"
 fi
 
 echo ""
