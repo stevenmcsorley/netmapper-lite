@@ -1391,10 +1391,44 @@ class MainWindow(Gtk.Window):
     def _save_window_prefs(self):
         """Save window preferences to config file."""
         try:
+            # Only save if window is realized (shown)
+            if not self.get_realized():
+                # Just save app preferences, skip window position
+                prefs = {
+                    'window': self._window_prefs,
+                    'app': self._app_prefs
+                }
+                with open(self._config_file, 'w') as f:
+                    json.dump(prefs, f, indent=2)
+                return
+            
             # Get current window position and size
-            width = self.get_width()
-            height = self.get_height()
-            x, y = self.get_position()
+            try:
+                width = self.get_width()
+                height = self.get_height()
+            except:
+                width = self._window_prefs.get('width', 1200)
+                height = self._window_prefs.get('height', 800)
+            
+            try:
+                # In GTK4, we need to get the surface for position
+                surface = self.get_surface()
+                if surface and hasattr(surface, 'get_position'):
+                    x, y = surface.get_position()
+                else:
+                    # Fallback: try to get from window manager
+                    alloc = self.get_allocation()
+                    if alloc:
+                        # Position might not be available, use current prefs
+                        x = self._window_prefs.get('x', -1)
+                        y = self._window_prefs.get('y', -1)
+                    else:
+                        x = self._window_prefs.get('x', -1)
+                        y = self._window_prefs.get('y', -1)
+            except:
+                # If position not available, keep existing
+                x = self._window_prefs.get('x', -1)
+                y = self._window_prefs.get('y', -1)
             
             self._window_prefs.update({
                 'width': width,
@@ -1411,7 +1445,9 @@ class MainWindow(Gtk.Window):
             with open(self._config_file, 'w') as f:
                 json.dump(prefs, f, indent=2)
         except Exception as e:
-            print(f"Error saving preferences: {e}")
+            # Don't print error if window isn't ready yet
+            if self.get_realized():
+                print(f"Error saving preferences: {e}")
     
     def _restore_window_state(self):
         """Restore window position and size after window is realized."""
