@@ -37,11 +37,16 @@ class MainWindow(Gtk.Window):
         self.socket_path = DEV_SOCKET_PATH if os.path.exists(DEV_SOCKET_PATH) else SOCKET_PATH
         self.db_path = DEV_DB_PATH if os.path.exists(DEV_DB_PATH) else DB_PATH
         
+        # Initialize network map data
+        self.network_nodes = []
+        self.network_edges = []
+        self.map_drawing_area = None
+        
         # Build UI
         try:
             self._build_ui()
         except Exception as e:
-            print(f"Error building UI: {e}")
+            print(f"❌ Error building UI: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -449,7 +454,7 @@ class MainWindow(Gtk.Window):
         if not self.network_nodes:
             # Draw placeholder text
             cr.set_source_rgb(0.5, 0.5, 0.5)
-            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            cr.select_font_face("Sans")
             cr.set_font_size(24)
             text = "Run a scan and click 'Refresh Map' to view network topology"
             (x, y, text_width, text_height, dx, dy) = cr.text_extents(text)
@@ -496,7 +501,7 @@ class MainWindow(Gtk.Window):
             
             # Draw label (IP address)
             cr.set_source_rgb(0, 0, 0)
-            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.select_font_face("Sans Bold")
             cr.set_font_size(10)
             
             label = node['ip'].split('.')[-1]  # Last octet
@@ -1084,13 +1089,22 @@ class NetMapperApp(Gtk.Application):
     def do_activate(self):
         if not self.window:
             try:
+                print("Creating MainWindow...")
                 self.window = MainWindow(self)
+                print("MainWindow created successfully")
             except Exception as e:
                 print(f"Error creating window: {e}")
                 import traceback
                 traceback.print_exc()
                 return
+        
+        print("Presenting window...")
         self.window.present()
+        print("Window presented. GUI should be visible now.")
+        # Force window to front
+        self.window.set_visible(True)
+        if hasattr(self.window, 'activate'):
+            self.window.activate()
 
 
 if __name__ == '__main__':
