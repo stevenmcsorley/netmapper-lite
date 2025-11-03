@@ -47,8 +47,11 @@ NetMapper-Lite is a two-process native Linux application:
 
 ### Data Management
 - **SQLite-based scan history** - persistent storage of all scans
+- **Nmap results storage** - automatically saves port scans to database
+- **Scan comparison/diff** - compare two scans to see what changed
 - **Export functionality** - save scan results as JSON or CSV
 - **Nmap results display** - view open ports and services per host
+- **Nmap history** - retrieve past port scan results for any host
 
 ### Security & Operations
 - **Secure privilege separation** - helper runs with minimal capabilities
@@ -257,6 +260,19 @@ sudo systemctl start netmapper-helper.service
    - Click "Export Results" to save scan data as JSON or CSV
    - Click "Export Map as Image" in the Network Map tab to save the visualization
 
+8. **Compare scans**:
+   - Go to the "Compare Scans" tab
+   - Select two scans from the dropdown menus
+   - Click "Compare Scans" to see:
+     - **New Hosts**: Devices that appeared in the newer scan
+     - **Disappeared**: Devices that vanished between scans
+     - **Changed**: Devices with different MAC, hostname, or vendor
+
+9. **Hover tooltips on map**:
+   - Hover your mouse over any device node on the network map
+   - See a tooltip with IP, hostname, and vendor information
+   - The node highlights when hovered
+
 ## Architecture
 
 ### IPC Communication
@@ -283,6 +299,7 @@ Results are stored in SQLite and can be retrieved via:
 Scans are stored in SQLite with the following structure:
 - `scans` table: scan_id, cidr, timestamp, host_count
 - `hosts` table: scan_id, ip, mac, hostname, vendor
+- `nmap_scans` table: ip, scan_timestamp, ports, services, nmap_xml (stores port scan history)
 
 ## Development
 
