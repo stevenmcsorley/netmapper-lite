@@ -72,10 +72,8 @@ class MainWindow(Gtk.Window):
             traceback.print_exc()
             raise
         
-        # Restore window position/size
-        if self._window_prefs.get('x', -1) >= 0 and self._window_prefs.get('y', -1) >= 0:
-            self.move(self._window_prefs['x'], self._window_prefs['y'])
-        self.set_default_size(self._window_prefs['width'], self._window_prefs['height'])
+        # Restore window position/size (after window is shown)
+        GLib.idle_add(self._restore_window_state)
         
         # Connect to window events for saving preferences
         self.connect("close-request", self._on_window_close)
@@ -1339,6 +1337,14 @@ class MainWindow(Gtk.Window):
         except Exception as e:
             print(f"Error saving preferences: {e}")
     
+    def _restore_window_state(self):
+        """Restore window position and size after window is realized."""
+        if self._window_prefs.get('x', -1) >= 0 and self._window_prefs.get('y', -1) >= 0:
+            self.move(self._window_prefs['x'], self._window_prefs['y'])
+        if self._window_prefs.get('width', 1200) != 1200 or self._window_prefs.get('height', 800) != 800:
+            self.set_default_size(self._window_prefs['width'], self._window_prefs['height'])
+        return False  # Don't repeat
+    
     def _on_window_close(self, window):
         """Handle window close event - save preferences."""
         self._save_window_prefs()
@@ -1671,6 +1677,37 @@ class MainWindow(Gtk.Window):
         
         vbox.append(info_grid)
         
+        # Nmap history section
+        nmap_history_label = Gtk.Label(label="Nmap Scan History:")
+        nmap_history_label.set_halign(Gtk.Align.START)
+        nmap_history_label.set_margin_top(12)
+        vbox.append(nmap_history_label)
+        
+        # Nmap history list
+        nmap_store = Gtk.ListStore(int, str, str)  # timestamp, ports, services
+        nmap_view = Gtk.TreeView(model=nmap_store)
+        
+        renderer = Gtk.CellRendererText()
+        col = Gtk.TreeViewColumn(title="Date/Time")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 1)
+        nmap_view.append_column(col)
+        
+        col = Gtk.TreeViewColumn(title="Ports/Services")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 2)
+        col.set_resizable(True)
+        nmap_view.append_column(col)
+        
+        nmap_scroll = Gtk.ScrolledWindow()
+        nmap_scroll.set_child(nmap_view)
+        nmap_scroll.set_min_content_height(120)
+        nmap_scroll.set_max_content_height(200)
+        vbox.append(nmap_scroll)
+        
+        # Load Nmap history
+        self._load_nmap_history(ip, nmap_store)
+        
         # Close button
         dialog.add_button("Close", Gtk.ResponseType.CLOSE)
         dialog.connect("response", lambda d, r: d.close())
@@ -1759,8 +1796,6 @@ class MainWindow(Gtk.Window):
             "ip": ip,
             "ports": ports
         })
-        
-        self.nmap_btn.set_sensitive(True)
         
         self.nmap_btn.set_sensitive(True)
         
