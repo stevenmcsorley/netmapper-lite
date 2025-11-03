@@ -1626,12 +1626,12 @@ class MainWindow(Gtk.Window):
         if not ip:
             return 0
         try:
-            # Use a shorter timeout to avoid blocking
+            # Use a very short timeout to avoid blocking (0.5s)
             result = self.send_request({
                 "cmd": "get_nmap_history",
                 "ip": ip,
                 "limit": 1
-            }, timeout=1.0)  # 1 second timeout
+            }, timeout=0.5)  # 0.5 second timeout - fail fast
             if result:
                 j = json.loads(result)
                 if j.get('status') == 'ok' and j.get('history'):
@@ -1640,18 +1640,25 @@ class MainWindow(Gtk.Window):
                     if ports:
                         # Count ports (format: "22/tcp, 80/tcp, 443/tcp")
                         return len([p for p in ports.split(',') if p.strip()])
-        except:
+        except Exception as e:
+            # Silently fail - don't spam console with timeout errors
             pass
         return 0
     
-    def _load_port_counts_async(self, start_idx=0):
+    def _load_port_counts_async(self, start_idx=0, consecutive_failures=0):
         """Load port counts for all nodes asynchronously to avoid blocking."""
         if not self.network_nodes or start_idx >= len(self.network_nodes):
             return False
         
-        # Only load a few at a time to avoid overwhelming the socket
-        batch_size = 3
+        # If too many consecutive failures, stop trying to avoid spam
+        if consecutive_failures >= 3:
+            print("⚠️  Port count loading stopped due to multiple timeouts")
+            return False
+        
+        # Only load one at a time to avoid overwhelming the socket
+        batch_size = 1  # More conservative: one at a time
         loaded = 0
+        failures = 0
         end_idx = min(start_idx + batch_size, len(self.network_nodes))
         
         for i in range(start_idx, end_idx):
@@ -1662,8 +1669,12 @@ class MainWindow(Gtk.Window):
                     if port_count > 0:
                         node['port_count'] = port_count
                         loaded += 1
-                except:
-                    pass
+                    failures = 0  # Reset failure count on success
+                except Exception as e:
+                    failures += 1
+                    # Don't print every timeout - too noisy
+                    if failures <= 2:
+                        pass  # Silent failure
         
         # If we loaded some, redraw the map
         if loaded > 0 and self.map_drawing_area:
@@ -1671,8 +1682,8 @@ class MainWindow(Gtk.Window):
         
         # Continue loading more if there are nodes left
         if end_idx < len(self.network_nodes):
-            # Schedule next batch with 100ms delay
-            GLib.timeout_add(100, lambda: self._load_port_counts_async(end_idx))
+            # Schedule next batch with longer delay (500ms) to avoid overwhelming
+            GLib.timeout_add(500, lambda: self._load_port_counts_async(end_idx, failures))
             return False
         
         return False  # Don't repeat
@@ -1878,8 +1889,12 @@ class MainWindow(Gtk.Window):
                         self._generate_network_map(hosts)
                         if self.map_drawing_area:
                             self.map_drawing_area.queue_draw()
-                        # Load port counts asynchronously (non-blocking)
-                        GLib.idle_add(self._load_port_counts_async)
+                        # Load port counts asynchronously (non-blocking) - only if not too many nodes
+                        if len(hosts) <= 20:  # Only load port counts for smaller networks
+                            GLib.idle_add(self._load_port_counts_async)
+                        else:
+                            # Too many nodes - skip port count loading to avoid timeouts
+                            print(f"⚠️  Skipping port count loading for {len(hosts)} hosts (too many)")
                         self._load_scan_history()  # Refresh sidebar
                         # Show desktop notification
                         self._show_notification("Scan Complete", f"Found {len(hosts)} hosts")
