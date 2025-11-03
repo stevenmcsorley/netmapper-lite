@@ -74,7 +74,8 @@ if [ -z "$DISPLAY" ]; then
     export DISPLAY=:0
 fi
 
-# Start GUI (foreground)
+# Start GUI (foreground) - suppress deprecation warnings
+export PYTHONWARNINGS="ignore::DeprecationWarning"
 python3 frontend/gui.py 2>&1
 GUI_EXIT=$?
 
