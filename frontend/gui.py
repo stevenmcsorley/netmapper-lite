@@ -1644,16 +1644,18 @@ class MainWindow(Gtk.Window):
             pass
         return 0
     
-    def _load_port_counts_async(self):
+    def _load_port_counts_async(self, start_idx=0):
         """Load port counts for all nodes asynchronously to avoid blocking."""
-        if not self.network_nodes:
+        if not self.network_nodes or start_idx >= len(self.network_nodes):
             return False
         
         # Only load a few at a time to avoid overwhelming the socket
         batch_size = 3
         loaded = 0
+        end_idx = min(start_idx + batch_size, len(self.network_nodes))
         
-        for node in self.network_nodes[:batch_size]:
+        for i in range(start_idx, end_idx):
+            node = self.network_nodes[i]
             if node.get('port_count', -1) == 0:  # Not loaded yet
                 try:
                     port_count = self._get_port_count(node.get('ip', ''))
@@ -1668,11 +1670,9 @@ class MainWindow(Gtk.Window):
             self.map_drawing_area.queue_draw()
         
         # Continue loading more if there are nodes left
-        if len(self.network_nodes) > batch_size:
-            # Remove the ones we just processed
-            self.network_nodes = self.network_nodes[batch_size:]
-            # Schedule next batch
-            GLib.timeout_add(100, self._load_port_counts_async)  # 100ms delay between batches
+        if end_idx < len(self.network_nodes):
+            # Schedule next batch with 100ms delay
+            GLib.timeout_add(100, lambda: self._load_port_counts_async(end_idx))
             return False
         
         return False  # Don't repeat
@@ -2558,21 +2558,24 @@ class MainWindow(Gtk.Window):
         except Exception as e:
             print(f"Notification error: {e}")
     
-    def send_request(self, obj):
+    def send_request(self, obj, timeout=5.0):
         """Send JSON request to helper via UNIX socket."""
         if not os.path.exists(self.socket_path):
             return None
         
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(30)  # Longer timeout for Nmap
+            s.settimeout(timeout)  # Use provided timeout (default 5s, shorter for port counts)
             s.connect(self.socket_path)
             s.sendall(json.dumps(obj).encode('utf-8'))
             data = s.recv(65536).decode('utf-8')
             s.close()
             return data
-        except (ConnectionRefusedError, FileNotFoundError, socket.error) as e:
-            print(f"Socket error: {e}")
+        except (ConnectionRefusedError, FileNotFoundError, socket.timeout, socket.error) as e:
+            if isinstance(e, socket.timeout):
+                print(f"Socket error: timed out")
+            else:
+                print(f"Socket error: {e}")
             return None
         except Exception as e:
             print(f"Request error: {e}")
