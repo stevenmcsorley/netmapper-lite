@@ -1,0 +1,16 @@
+[Unit]
+Description=NetMapper Helper Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=netmapper
+ExecStart=/usr/bin/env python3 /usr/lib/netmapper/netmapper_helper.py
+Restart=on-failure
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
