@@ -40,7 +40,11 @@ class MainWindow(Gtk.Window):
     def _build_ui(self):
         """Build the GTK4 UI."""
         # Main vertical box
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin=12)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
         self.set_child(vbox)
         
         # Header bar
@@ -143,7 +147,11 @@ class MainWindow(Gtk.Window):
         self.selected_host = None
         
         # Bottom status bar
-        status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin=6)
+        status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        status_bar.set_margin_start(6)
+        status_bar.set_margin_end(6)
+        status_bar.set_margin_top(6)
+        status_bar.set_margin_bottom(6)
         vbox.append(status_bar)
         
         self.host_count_label = Gtk.Label(label="Hosts: 0")
