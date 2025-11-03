@@ -989,7 +989,7 @@ class MainWindow(Gtk.Window):
                 if j.get('status') == 'ok' and j.get('results'):
                     hosts = j.get('results', [])
                     if hosts:
-                    self._update_results(hosts)
+                        self._update_results(hosts)
                     self.status_label.set_text(f"Scan complete: {len(hosts)} hosts found")
                     self.scan_btn.set_sensitive(True)
                     self.export_btn.set_sensitive(True)
