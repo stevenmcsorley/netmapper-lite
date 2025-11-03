@@ -870,6 +870,7 @@ class MainWindow(Gtk.Window):
         self.scan_btn.set_sensitive(False)
         self.export_btn.set_sensitive(False)
         self.status_label.set_text('Starting scan...')
+        self.current_cidr = cidr  # Store for subnet detection
         # Clear store by creating new one (clear() deprecated in GTK4)
         self.store = Gtk.ListStore(str, str, str, str)
         self.tree_view.set_model(self.store)
