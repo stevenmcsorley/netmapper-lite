@@ -714,15 +714,20 @@ class MainWindow(Gtk.Window):
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from backend.subnet_detector import detect_subnets
             # Get base CIDR from current scan (if available)
-            base_cidr = self.current_cidr if hasattr(self, 'current_cidr') else "192.168.100.0/24"
+            base_cidr = self.current_cidr if hasattr(self, 'current_cidr') and self.current_cidr else "192.168.100.0/24"
+            print(f"🔍 Detecting subnets in {base_cidr} with {len(hosts)} hosts...")
             subnet_info = detect_subnets(hosts, base_cidr)
             subnets = subnet_info.get("subnets", [])
             hosts_by_subnet = subnet_info.get("hosts_by_subnet", {})
             
-            # If multiple subnets detected, use subnet-aware layout
+            print(f"✅ Found {len(subnets)} subnet(s)")
             if len(subnets) > 1:
+                print(f"🗺️  Using subnet-aware map layout")
+                # If multiple subnets detected, use subnet-aware layout
                 self._generate_subnet_map(hosts, subnets, hosts_by_subnet)
                 return
+            else:
+                print(f"📍 Single subnet detected, using standard layout")
         except Exception as e:
             print(f"Subnet detection error: {e}")
             import traceback
