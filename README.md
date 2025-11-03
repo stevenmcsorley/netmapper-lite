@@ -398,6 +398,18 @@ Perfect for testing the network map visualization and UI features!
 
 See `tests/README_FAKE_NETWORK.md` for more details.
 
+## Recent Improvements
+
+### v0.6.0 - Enhanced Network Topology Visualization
+- **Subnet Visualization**: Subnets are now displayed in blue rounded boxes with clear boundaries
+- **Topology Routing**: Shows explicit routing paths between subnets with thick blue dashed lines
+- **Main Gateway**: Prominently displayed as a large central node (40px radius) with white border and glow
+- **Routing Labels**: Displays subnet CIDR labels on routing paths (e.g., "Route: 192.168.3.0/24")
+- **Improved Gateway Detection**: Only uses actual gateway from routing table, not just any .1 or .254 device
+- **Subnet Boundaries**: Clear visual separation between subnet clusters with background fills
+- **Multi-Subnet Scanning**: Better visualization when scanning multiple networks simultaneously
+- **Fixed GTK4 Compatibility**: Resolved MessageDialog API issues for proper export dialogs
+
 ### Clean Build Artifacts
 
 ```bash
