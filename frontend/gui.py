@@ -58,6 +58,10 @@ class MainWindow(Gtk.Window):
         self._app_prefs = {'dark_mode': 'auto', 'network_profiles': []}
         self._load_window_prefs()
         
+        # Polling state
+        self._poll_attempts = 0
+        self._max_poll_attempts = 120  # 60 seconds max (500ms * 120)
+        
         # Initialize network map data
         self.network_nodes = []
         self.network_edges = []
@@ -132,6 +136,7 @@ class MainWindow(Gtk.Window):
         input_box.append(cidr_label)
         
         self.cidr_entry = Gtk.Entry()
+        self.cidr_entry.set_placeholder_text("e.g., 192.168.1.0/24 or 192.168.1.0/24,192.168.3.0/24")
         # Auto-detect network for default CIDR
         try:
             import subprocess
@@ -230,6 +235,14 @@ class MainWindow(Gtk.Window):
         # Scan Comparison tab
         compare_frame = self._build_compare_tab()
         self.notebook.append_page(compare_frame, Gtk.Label(label="Compare Scans"))
+        
+        # Timeline View tab
+        timeline_frame = self._build_timeline_tab()
+        self.notebook.append_page(timeline_frame, Gtk.Label(label="Timeline"))
+        
+        # Statistics/Dashboard tab
+        stats_frame = self._build_stats_tab()
+        self.notebook.append_page(stats_frame, Gtk.Label(label="Statistics"))
         
         # Bottom status bar
         status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -651,6 +664,179 @@ class MainWindow(Gtk.Window):
             col.set_resizable(True)
             tree_view.append_column(col)
     
+    def _build_timeline_tab(self):
+        """Build timeline view tab."""
+        timeline_frame = Gtk.Frame(label="Device Timeline View")
+        
+        timeline_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        timeline_box.set_margin_start(12)
+        timeline_box.set_margin_end(12)
+        timeline_box.set_margin_top(12)
+        timeline_box.set_margin_bottom(12)
+        timeline_frame.set_child(timeline_box)
+        
+        # Control panel
+        control_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        
+        ip_label = Gtk.Label(label="IP Address:")
+        control_box.append(ip_label)
+        
+        self.timeline_ip_entry = Gtk.Entry()
+        self.timeline_ip_entry.set_placeholder_text("192.168.1.100")
+        control_box.append(self.timeline_ip_entry)
+        
+        days_label = Gtk.Label(label="Days:")
+        control_box.append(days_label)
+        
+        self.timeline_days_spin = Gtk.SpinButton()
+        self.timeline_days_spin.set_adjustment(Gtk.Adjustment(value=7, lower=1, upper=365, step_increment=1))
+        control_box.append(self.timeline_days_spin)
+        
+        load_btn = Gtk.Button(label="Load Timeline")
+        load_btn.connect('clicked', self._load_timeline)
+        control_box.append(load_btn)
+        
+        timeline_box.append(control_box)
+        
+        # Timeline view (TreeView)
+        timeline_store = Gtk.ListStore(int, str, str, str, str)  # timestamp, scan_id, mac, hostname, vendor
+        timeline_view = Gtk.TreeView(model=timeline_store)
+        
+        renderer = Gtk.CellRendererText()
+        
+        col = Gtk.TreeViewColumn(title="Date/Time")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 1)
+        timeline_view.append_column(col)
+        
+        col = Gtk.TreeViewColumn(title="MAC")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 2)
+        timeline_view.append_column(col)
+        
+        col = Gtk.TreeViewColumn(title="Hostname")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 3)
+        timeline_view.append_column(col)
+        
+        col = Gtk.TreeViewColumn(title="Vendor")
+        col.pack_start(renderer, True)
+        col.add_attribute(renderer, "text", 4)
+        timeline_view.append_column(col)
+        
+        self.timeline_store = timeline_store
+        self.timeline_view = timeline_view
+        
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_child(timeline_view)
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        timeline_box.append(scroll)
+        
+        return timeline_frame
+    
+    def _build_stats_tab(self):
+        """Build statistics/dashboard tab."""
+        stats_frame = Gtk.Frame(label="Database Statistics")
+        
+        stats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        stats_box.set_margin_start(12)
+        stats_box.set_margin_end(12)
+        stats_box.set_margin_top(12)
+        stats_box.set_margin_bottom(12)
+        stats_frame.set_child(stats_box)
+        
+        # Refresh button
+        refresh_btn = Gtk.Button(label="Refresh Statistics")
+        refresh_btn.connect('clicked', self._load_stats)
+        stats_box.append(refresh_btn)
+        
+        # Stats display area
+        self.stats_text = Gtk.TextView()
+        self.stats_text.set_editable(False)
+        self.stats_text.set_monospace(True)
+        
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_child(self.stats_text)
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        stats_box.append(scroll)
+        
+        # Load stats on tab creation
+        GLib.idle_add(self._load_stats, None)
+        
+        return stats_frame
+    
+    def _load_timeline(self, btn):
+        """Load timeline for selected IP."""
+        ip = self.timeline_ip_entry.get_text().strip()
+        if not ip:
+            self._show_info_dialog("Timeline", "Please enter an IP address")
+            return
+        
+        days = int(self.timeline_days_spin.get_value())
+        
+        result = self.send_request({
+            "cmd": "get_timeline",
+            "ip": ip,
+            "days": days
+        })
+        
+        if result:
+            try:
+                j = json.loads(result)
+                if j.get('status') == 'ok':
+                    timeline = j.get('timeline', [])
+                    
+                    # Clear and populate store
+                    self.timeline_store = Gtk.ListStore(int, str, str, str, str)
+                    for entry in timeline:
+                        ts = entry.get('timestamp', 0)
+                        time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts)) if ts else '-'
+                        self.timeline_store.append([
+                            ts,
+                            time_str,
+                            entry.get('mac', '-'),
+                            entry.get('hostname', '-'),
+                            entry.get('vendor', '-')
+                        ])
+                    self.timeline_view.set_model(self.timeline_store)
+                    self.status_label.set_text(f"Timeline loaded: {len(timeline)} entries")
+                else:
+                    self._show_error_dialog("Error", j.get('message', 'Unknown error'))
+            except Exception as e:
+                self._show_error_dialog("Error", f"Failed to load timeline: {e}")
+    
+    def _load_stats(self, btn):
+        """Load and display database statistics."""
+        result = self.send_request({"cmd": "get_stats"})
+        
+        if result:
+            try:
+                j = json.loads(result)
+                if j.get('status') == 'ok':
+                    stats = j.get('stats', {})
+                    
+                    text = f"""Database Statistics
+{'='*50}
+
+Total Scans: {stats.get('total_scans', 0)}
+Unique Hosts: {stats.get('unique_hosts', 0)}
+Total Nmap Scans: {stats.get('total_nmap_scans', 0)}
+
+Oldest Scan: {time.strftime('%Y-%m-%d', time.localtime(stats.get('oldest_scan', 0))) if stats.get('oldest_scan') else 'N/A'}
+Newest Scan: {time.strftime('%Y-%m-%d', time.localtime(stats.get('newest_scan', 0))) if stats.get('newest_scan') else 'N/A'}
+
+Top Vendors:
+"""
+                    for vendor in stats.get('top_vendors', [])[:10]:
+                        text += f"  • {vendor.get('vendor', 'Unknown')}: {vendor.get('count', 0)} devices\n"
+                    
+                    buffer = self.stats_text.get_buffer()
+                    buffer.set_text(text)
+            except Exception as e:
+                self.status_label.set_text(f"Error loading stats: {e}")
+    
     def _on_compare_scans(self, btn):
         """Handle compare scans button click."""
         scan_id1 = self.compare_scan1_combo.get_active_id()
@@ -757,12 +943,51 @@ class MainWindow(Gtk.Window):
             from backend.subnet_detector import detect_subnets
             # Get base CIDR from current scan (if available)
             base_cidr = self.current_cidr if hasattr(self, 'current_cidr') and self.current_cidr else "192.168.100.0/24"
-            print(f"🔍 Detecting subnets in {base_cidr} with {len(hosts)} hosts...")
-            subnet_info = detect_subnets(hosts, base_cidr)
-            subnets = subnet_info.get("subnets", [])
-            hosts_by_subnet = subnet_info.get("hosts_by_subnet", {})
             
-            print(f"✅ Found {len(subnets)} subnet(s)")
+            # Handle comma-separated CIDRs (multi-subnet scan)
+            if ',' in base_cidr:
+                # For multi-subnet scans, use the first CIDR as base, or detect from hosts
+                cidr_list = [c.strip() for c in base_cidr.split(',')]
+                # Use the largest network as base (e.g., /16 if one exists)
+                base_cidr = cidr_list[0]  # Default to first
+                for cidr in cidr_list:
+                    if '/' in cidr:
+                        prefix = int(cidr.split('/')[1])
+                        if prefix < 24:  # Prefer larger network
+                            base_cidr = cidr
+                            break
+            
+            # For multi-subnet scans (comma-separated), always group by /24 subnet
+            if ',' in str(self.current_cidr):
+                print(f"🔍 Multi-subnet scan detected, grouping hosts by /24 subnet...")
+                # Group hosts by their /24 subnet
+                import ipaddress
+                hosts_by_subnet = {}
+                for host in hosts:
+                    ip_str = host.get('ip')
+                    if not ip_str:
+                        continue
+                    try:
+                        ip_obj = ipaddress.IPv4Address(ip_str)
+                        subnet_24 = ipaddress.IPv4Network(f"{ip_obj}/24", strict=False)
+                        subnet_cidr = str(subnet_24)
+                        if subnet_cidr not in hosts_by_subnet:
+                            hosts_by_subnet[subnet_cidr] = []
+                        hosts_by_subnet[subnet_cidr].append(host)
+                    except:
+                        pass
+                
+                # Create subnets list from grouped hosts
+                subnets = [{"cidr": cidr, "host_count": len(hosts_by_subnet[cidr])} 
+                          for cidr in sorted(hosts_by_subnet.keys())]
+                print(f"✅ Found {len(subnets)} subnet(s): {[s.get('cidr', '') for s in subnets]}")
+            else:
+                # Single CIDR scan - use detect_subnets
+                print(f"🔍 Detecting subnets in {base_cidr} with {len(hosts)} hosts...")
+                subnet_info = detect_subnets(hosts, base_cidr)
+                subnets = subnet_info.get("subnets", [])
+                hosts_by_subnet = subnet_info.get("hosts_by_subnet", {})
+                print(f"✅ Found {len(subnets)} subnet(s)")
             if len(subnets) > 1:
                 print(f"🗺️  Using subnet-aware map layout")
                 # If multiple subnets detected, use subnet-aware layout
@@ -847,23 +1072,30 @@ class MainWindow(Gtk.Window):
         else:
             other_hosts = hosts
         
-        # Position other hosts in circle
-        angle_step = (2 * math.pi) / len(other_hosts) if other_hosts else 0
+        # Build node list for force-directed layout
+        all_nodes = []
         
-        for i, host in enumerate(other_hosts):
-            angle = i * angle_step
-            x = center_x + radius * math.cos(angle)
-            y = center_y + radius * math.sin(angle)
-            
-            # Determine node type based on hostname and vendor
+        # Add gateway node if exists
+        if gateway:
+            all_nodes.append({
+                'x': center_x,
+                'y': center_y,
+                'ip': gateway.get('ip', ''),
+                'mac': gateway.get('mac', ''),
+                'hostname': gateway.get('hostname') or '',
+                'vendor': gateway.get('vendor') or '',
+                'type': 'gateway',
+                'radius': 25
+            })
+        
+        # Add other hosts
+        for host in other_hosts:
+            # Determine node type
             node_type = 'device'
             hostname = (host.get('hostname') or '').lower()
             vendor = (host.get('vendor') or '').lower()
             
-            # Enhanced classification
-            if 'router' in hostname or 'gateway' in hostname or 'router' in vendor:
-                node_type = 'gateway'
-            elif 'server' in hostname or 'db' in hostname or 'backup' in hostname or 'web' in hostname:
+            if 'server' in hostname or 'db' in hostname or 'backup' in hostname or 'web' in hostname:
                 node_type = 'server'
             elif any(x in hostname for x in ['camera', 'tv', 'light', 'thermostat', 'sensor', 'hub', 'iot']):
                 node_type = 'iot'
@@ -874,15 +1106,46 @@ class MainWindow(Gtk.Window):
             elif vendor == 'unknown' or not vendor or vendor == '-':
                 node_type = 'unknown'
             
-            self.network_nodes.append({
-                'x': x,
-                'y': y,
+            all_nodes.append({
+                'x': None,  # Will be set by force-directed layout
+                'y': None,
                 'ip': host.get('ip', ''),
                 'mac': host.get('mac', ''),
-                'hostname': hostname or host.get('ip', ''),
-                'vendor': vendor,
+                'hostname': host.get('hostname') or '',
+                'vendor': host.get('vendor') or '',
                 'type': node_type,
                 'radius': 20
+            })
+        
+        # Apply force-directed layout
+        try:
+            from backend.force_directed_layout import force_directed_layout
+            canvas_width = 1200
+            canvas_height = 800
+            all_nodes = force_directed_layout(all_nodes, canvas_width, canvas_height, iterations=150)
+        except Exception as e:
+            print(f"Force-directed layout failed, using circular fallback: {e}")
+            # Fallback to circular layout
+            angle_step = (2 * math.pi) / len(other_hosts) if other_hosts else 0
+            for i, node in enumerate(all_nodes):
+                if node.get('type') != 'gateway':
+                    angle = i * angle_step
+                    node['x'] = center_x + radius * math.cos(angle)
+                    node['y'] = center_y + radius * math.sin(angle)
+        
+        # Convert to network_nodes format
+        self.network_nodes = []
+        for node in all_nodes:
+            self.network_nodes.append({
+                'x': node['x'],
+                'y': node['y'],
+                'ip': node['ip'],
+                'mac': node['mac'],
+                'hostname': node['hostname'],
+                'vendor': node['vendor'],
+                'type': node['type'],
+                'radius': node['radius'],
+                'port_count': 0  # Will be fetched asynchronously later
             })
         
         # Generate edges (connections to gateway)
@@ -899,6 +1162,8 @@ class MainWindow(Gtk.Window):
         import subprocess
         
         self.network_nodes = []
+        self.subnet_boundaries = []  # Initialize subnet boundaries list
+        self.current_subnets = subnets  # Store subnets for topology drawing
         
         # Main center for overall network
         center_x, center_y = 400, 300
@@ -922,12 +1187,29 @@ class MainWindow(Gtk.Window):
         except:
             pass
         
-        # Position main gateway in center
+        # Position main gateway in center - make it VERY prominent
+        # Only use the ACTUAL gateway from routing table, not just any .1 or .254 device
         gateway = None
-        for host in hosts:
-            if host.get('ip') == actual_gateway_ip or host.get('ip').endswith('.1') or host.get('ip').endswith('.254'):
-                gateway = host
-                break
+        if actual_gateway_ip:
+            # First, try to find the exact gateway IP from routing table
+            for host in hosts:
+                if host.get('ip') == actual_gateway_ip:
+                    gateway = host
+                    break
+        
+        # If we didn't find the exact gateway, only check .1 or .254 in the MAIN subnet (first subnet)
+        if not gateway and subnets:
+            # Get the first subnet's network (usually the main network)
+            main_subnet_cidr = subnets[0].get('cidr', '')
+            if main_subnet_cidr:
+                main_network_base = main_subnet_cidr.split('/')[0].rsplit('.', 1)[0]
+                for host in hosts:
+                    host_ip = host.get('ip', '')
+                    # Only check .1 or .254 if they're in the main subnet
+                    if host_ip.startswith(main_network_base + '.'):
+                        if host_ip.endswith('.1') or host_ip.endswith('.254'):
+                            gateway = host
+                            break
         
         if gateway:
             self.network_nodes.append({
@@ -939,9 +1221,10 @@ class MainWindow(Gtk.Window):
                 'vendor': gateway.get('vendor') or '',
                 'label': gateway.get('hostname') or gateway.get('vendor') or 'Gateway',
                 'type': 'gateway',
-                'radius': 30,
+                'radius': 40,  # Larger main gateway
                 'subnet': None,
-                'port_count': 0  # Will be fetched asynchronously later
+                'port_count': 0,
+                'is_main_gateway': True  # Mark as main gateway
             })
         
         # Position each subnet in a circle around the center
@@ -967,45 +1250,82 @@ class MainWindow(Gtk.Window):
                 subnet_center_x = center_x + subnet_radius * math.cos(angle)
                 subnet_center_y = center_y + subnet_radius * math.sin(angle)
             
-            # Add subnet label node (invisible, for reference)
+            # Create subnet label for display
             subnet_label = subnet_cidr.split('/')[0].rsplit('.', 1)[0] + '.x/' + subnet_cidr.split('/')[1]
             
-            # Position hosts in this subnet in a circle around subnet center
+            # Store subnet boundary info for drawing
+            if not hasattr(self, 'subnet_boundaries'):
+                self.subnet_boundaries = []
+            
+            # Calculate subnet boundary (will be used for drawing)
             host_count = len(subnet_hosts)
             if host_count == 0:
                 continue
             
-            host_radius = min(60, host_count * 8)
+            host_radius = min(80, max(50, host_count * 10))  # Larger radius for subnet grouping
             host_angle_step = (2 * math.pi) / host_count if host_count > 1 else 0
+            
+            # Store subnet boundary info
+            subnet_nodes = []
             
             for host_idx, host in enumerate(subnet_hosts):
                 if gateway and host.get('ip') == gateway.get('ip'):
-                    continue  # Skip gateway, already placed
+                    continue  # Skip main gateway, already placed
                 
                 host_angle = host_idx * host_angle_step
                 node_x = subnet_center_x + host_radius * math.cos(host_angle)
                 node_y = subnet_center_y + host_radius * math.sin(host_angle)
                 
-                # Determine node type
+                # Determine node type - but don't mark subnet devices as gateway
                 node_type = 'host'
                 hostname = host.get('hostname', '').lower() if host.get('hostname') else ''
+                vendor = host.get('vendor', '').lower() if host.get('vendor') else ''
+                
                 if 'server' in hostname or 'db' in hostname:
                     node_type = 'server'
-                elif 'router' in hostname or 'gateway' in hostname:
-                    node_type = 'gateway'
+                elif 'iot' in hostname or 'camera' in hostname or 'sensor' in hostname:
+                    node_type = 'iot'
+                elif 'phone' in hostname or 'tablet' in hostname or 'mobile' in hostname:
+                    node_type = 'mobile'
+                elif 'printer' in hostname:
+                    node_type = 'printer'
+                # Don't mark subnet devices as gateway - they're just regular devices
                 
-                self.network_nodes.append({
+                node_data = {
                     'x': node_x,
                     'y': node_y,
                     'ip': host.get('ip', ''),
                     'mac': host.get('mac', ''),
                     'hostname': host.get('hostname') or '',
                     'vendor': host.get('vendor') or '',
-                    'label': subnet_label,  # Show subnet info
+                    'label': host.get('hostname') or host.get('ip').split('.')[-1] or '',
                     'type': node_type,
-                    'radius': 12,
+                    'radius': 15,  # Slightly larger for visibility
                     'subnet': subnet_cidr,
-                    'port_count': 0  # Will be fetched asynchronously later
+                    'port_count': 0,
+                    'is_main_gateway': False
+                }
+                self.network_nodes.append(node_data)
+                subnet_nodes.append(node_data)
+            
+            # Store subnet boundary for drawing
+            if subnet_nodes:
+                # Calculate bounding box for subnet
+                min_x = min(n['x'] for n in subnet_nodes) - host_radius - 20
+                max_x = max(n['x'] for n in subnet_nodes) + host_radius + 20
+                min_y = min(n['y'] for n in subnet_nodes) - host_radius - 20
+                max_y = max(n['y'] for n in subnet_nodes) + host_radius + 20
+                
+                self.subnet_boundaries.append({
+                    'cidr': subnet_cidr,
+                    'label': subnet_label,
+                    'center_x': subnet_center_x,
+                    'center_y': subnet_center_y,
+                    'min_x': min_x,
+                    'max_x': max_x,
+                    'min_y': min_y,
+                    'max_y': max_y,
+                    'node_count': len(subnet_nodes)
                 })
         
         # Generate edges: hosts connect to gateway, subnets connect to gateway
@@ -1043,19 +1363,131 @@ class MainWindow(Gtk.Window):
         cr.translate(self.map_offset_x, self.map_offset_y)
         cr.scale(self.map_zoom, self.map_zoom)
         
-        # Draw edges (connections) first
-        cr.set_source_rgb(0.7, 0.7, 0.7)
-        cr.set_line_width(2)
+        # Draw subnet boundaries first (behind everything)
+        import math
+        if hasattr(self, 'subnet_boundaries') and self.subnet_boundaries:
+            for subnet in self.subnet_boundaries:
+                # Draw rounded rectangle for subnet boundary
+                padding = 25
+                x = subnet['min_x'] - padding
+                y = subnet['min_y'] - padding
+                w = subnet['max_x'] - subnet['min_x'] + (padding * 2)
+                h = subnet['max_y'] - subnet['min_y'] + (padding * 2)
+                radius = 15
+                
+                # Helper to draw rounded rectangle (Cairo doesn't have this directly)
+                def rounded_rect(cr, x, y, w, h, r):
+                    cr.move_to(x + r, y)
+                    cr.line_to(x + w - r, y)
+                    cr.curve_to(x + w, y, x + w, y + r, x + w, y + r)
+                    cr.line_to(x + w, y + h - r)
+                    cr.curve_to(x + w, y + h, x + w - r, y + h, x + w - r, y + h)
+                    cr.line_to(x + r, y + h)
+                    cr.curve_to(x, y + h, x, y + h - r, x, y + h - r)
+                    cr.line_to(x, y + r)
+                    cr.curve_to(x, y, x + r, y, x + r, y)
+                    cr.close_path()
+                
+                # Light background for subnet
+                cr.set_source_rgba(0.9, 0.95, 1.0, 0.3)  # Very light blue
+                rounded_rect(cr, x, y, w, h, radius)
+                cr.fill()
+                
+                # Border for subnet
+                cr.set_source_rgba(0.4, 0.6, 0.9, 0.5)  # Blue border
+                cr.set_line_width(2)
+                rounded_rect(cr, x, y, w, h, radius)
+                cr.stroke()
+                
+                # Subnet label
+                cr.set_source_rgba(0.2, 0.4, 0.7, 0.8)
+                cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+                cr.set_font_size(12)
+                label_text = subnet['label']
+                (tx, ty, tw, th, tdx, tdy) = cr.text_extents(label_text)
+                cr.move_to(subnet['center_x'] - tw/2, subnet['min_y'] - padding/2)
+                cr.show_text(label_text)
         
+        # Draw edges (connections) - show topology between subnets
         gateway_node = None
         for node in self.network_nodes:
-            if node['type'] == 'gateway':
+            if node.get('is_main_gateway'):
                 gateway_node = node
                 break
         
         if gateway_node:
+            # Find potential router devices in main subnet that connect to other subnets
+            # These are typically devices with .1 or .254 in the main subnet
+            main_subnet_nodes = []
+            other_subnet_nodes = []
+            router_nodes = []
+            
             for node in self.network_nodes:
-                if node['type'] != 'gateway':
+                if not node.get('is_main_gateway'):
+                    if not node.get('subnet'):
+                        # Device in main subnet (or no subnet assigned)
+                        main_subnet_nodes.append(node)
+                        # Check if it might be a router (has .1 or .254 in main subnet)
+                        ip = node.get('ip', '')
+                        if ip.endswith('.1') or ip.endswith('.254'):
+                            router_nodes.append(node)
+                    else:
+                        # Device in another subnet
+                        other_subnet_nodes.append(node)
+            
+            # Connect subnets to main gateway (primary routing path)
+            if hasattr(self, 'subnet_boundaries') and self.subnet_boundaries:
+                for subnet in self.subnet_boundaries:
+                    subnet_cidr = subnet['cidr']
+                    
+                    # Check if this subnet is the main subnet (skip it)
+                    main_subnet_cidr = None
+                    if hasattr(self, 'current_subnets') and self.current_subnets and len(self.current_subnets) > 0:
+                        main_subnet_cidr = self.current_subnets[0].get('cidr', '')
+                    
+                    if subnet_cidr != main_subnet_cidr:
+                        # This is a remote subnet - connect it to main gateway
+                        # Draw thicker line for cross-subnet routing
+                        cr.set_source_rgba(0.3, 0.5, 0.8, 0.6)  # Blue for routing
+                        cr.set_line_width(3)
+                        cr.set_dash([8, 4])  # Dashed line for routing
+                        cr.move_to(subnet['center_x'], subnet['center_y'])
+                        cr.line_to(gateway_node['x'], gateway_node['y'])
+                        cr.stroke()
+                        
+                        # Add routing label
+                        cr.set_source_rgba(0.2, 0.4, 0.7, 0.9)
+                        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+                        cr.set_font_size(10)
+                        mid_x = (subnet['center_x'] + gateway_node['x']) / 2
+                        mid_y = (subnet['center_y'] + gateway_node['y']) / 2
+                        label = f"Route: {subnet_cidr}"
+                        (tx, ty, tw, th, tdx, tdy) = cr.text_extents(label)
+                        # Draw label background
+                        cr.set_source_rgba(1.0, 1.0, 1.0, 0.9)
+                        cr.rectangle(mid_x - tw/2 - 4, mid_y - th/2 - 2, tw + 8, th + 4)
+                        cr.fill()
+                        cr.set_source_rgba(0.2, 0.4, 0.7, 0.9)
+                        cr.move_to(mid_x - tw/2, mid_y + th/2)
+                        cr.show_text(label)
+                        
+                        cr.set_dash([])  # Reset dash
+            
+            # Connect individual nodes in same subnet (light connections)
+            for node in self.network_nodes:
+                if not node.get('is_main_gateway') and node.get('subnet'):
+                    # Light connection to main gateway for routing
+                    cr.set_source_rgba(0.7, 0.7, 0.7, 0.15)  # Very light gray
+                    cr.set_line_width(1)
+                    cr.move_to(node['x'], node['y'])
+                    cr.line_to(gateway_node['x'], gateway_node['y'])
+                    cr.stroke()
+            
+            # Connect devices in main subnet to gateway (local network)
+            for node in main_subnet_nodes:
+                if node not in router_nodes:  # Don't double-connect routers
+                    cr.set_source_rgba(0.6, 0.6, 0.6, 0.3)  # Light gray
+                    cr.set_line_width(1)
                     cr.move_to(node['x'], node['y'])
                     cr.line_to(gateway_node['x'], gateway_node['y'])
                     cr.stroke()
@@ -1064,23 +1496,80 @@ class MainWindow(Gtk.Window):
         for node in self.network_nodes:
             # Color by device type
             node_type = node.get('type', 'device')
-            if node_type == 'gateway':
-                cr.set_source_rgb(0.2, 0.6, 0.9)  # Blue for gateway
-            elif node_type == 'server':
-                cr.set_source_rgb(0.9, 0.6, 0.2)  # Orange for server
-            elif node_type == 'iot':
-                cr.set_source_rgb(0.7, 0.3, 0.9)  # Purple for IoT devices
-            elif node_type == 'mobile':
-                cr.set_source_rgb(0.9, 0.8, 0.2)  # Yellow for mobile
-            elif node_type == 'printer':
-                cr.set_source_rgb(0.3, 0.7, 0.9)  # Light blue for printers
-            elif node_type == 'unknown':
-                cr.set_source_rgb(0.6, 0.6, 0.6)  # Gray for unknown
-            else:
-                cr.set_source_rgb(0.4, 0.7, 0.4)  # Green for regular devices
+            is_main_gateway = node.get('is_main_gateway', False)
             
-            # Draw node circle
-            cr.arc(node['x'], node['y'], node['radius'], 0, 2 * 3.14159)
+            if is_main_gateway:
+                # Main gateway - VERY prominent
+                color = (0.1, 0.4, 0.9)  # Bright blue for main gateway
+                radius = node.get('radius', 40)
+                
+                # Draw outer glow/ring
+                cr.set_source_rgba(0.1, 0.4, 0.9, 0.3)
+                cr.arc(node['x'], node['y'], radius + 10, 0, 2 * math.pi)
+                cr.fill()
+                
+                # Draw main gateway node
+                cr.set_source_rgb(*color)
+                cr.arc(node['x'], node['y'], radius, 0, 2 * math.pi)
+                cr.fill()
+                
+                # White border for emphasis
+                cr.set_source_rgb(1.0, 1.0, 1.0)
+                cr.set_line_width(3)
+                cr.arc(node['x'], node['y'], radius, 0, 2 * math.pi)
+                cr.stroke()
+                
+                # Label for main gateway
+                cr.set_source_rgb(1.0, 1.0, 1.0)
+                cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+                cr.set_font_size(14)
+                label = node.get('label', 'Gateway') or 'Gateway'
+                (tx, ty, tw, th, tdx, tdy) = cr.text_extents(label)
+                cr.move_to(node['x'] - tw/2, node['y'] - radius - 15)
+                cr.show_text(label)
+                continue
+            elif node_type == 'gateway':
+                # Subnet gateway (shouldn't happen now, but fallback)
+                color = (0.3, 0.5, 0.8)  # Lighter blue for subnet gateways
+            elif node_type == 'server':
+                color = (0.9, 0.6, 0.2)  # Orange for server
+            elif node_type == 'iot':
+                color = (0.7, 0.3, 0.9)  # Purple for IoT devices
+            elif node_type == 'mobile':
+                color = (0.9, 0.8, 0.2)  # Yellow for mobile
+            elif node_type == 'printer':
+                color = (0.3, 0.7, 0.9)  # Light blue for printers
+            elif node_type == 'unknown':
+                color = (0.6, 0.6, 0.6)  # Gray for unknown
+            else:
+                color = (0.4, 0.7, 0.4)  # Green for regular devices
+            
+            # Heat map: make nodes with more ports/activity larger and brighter
+            port_count = node.get('port_count', 0)
+            activity_factor = min(1.0, port_count / 10.0)  # 0-1 scale
+            
+            # Adjust radius based on activity (heat map effect)
+            base_radius = node['radius']
+            heat_radius = base_radius * (1 + activity_factor * 0.5)  # Up to 50% larger
+            
+            # Adjust color brightness based on activity
+            if activity_factor > 0.7:
+                # Very active: bright color
+                cr.set_source_rgba(
+                    min(1.0, color[0] + 0.2),
+                    min(1.0, color[1] + 0.2),
+                    min(1.0, color[2] + 0.2),
+                    1.0
+                )
+            elif activity_factor > 0.3:
+                # Moderately active: normal color
+                cr.set_source_rgb(*color)
+            else:
+                # Less active: dimmed color
+                cr.set_source_rgba(color[0] * 0.7, color[1] * 0.7, color[2] * 0.7, 0.8)
+            
+            # Draw node circle with heat-adjusted radius
+            cr.arc(node['x'], node['y'], heat_radius, 0, 2 * 3.14159)
             cr.fill()
             
             # Draw border
@@ -1349,20 +1838,25 @@ class MainWindow(Gtk.Window):
     def _start_helper_clicked(self, btn):
         """Handle start helper button click."""
         dialog = Gtk.MessageDialog(
-            transient_for=self,
+            transient_for=self.window,
             modal=True,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK_CANCEL,
             text="Start Helper Service"
         )
-        dialog.set_secondary_text(
+        # GTK4 doesn't have set_secondary_text, use set_markup instead
+        dialog.set_markup(
+            "<b>Start Helper Service</b>\n\n"
             "The helper service needs to be started with sudo.\n\n"
             "Please run this in a terminal:\n"
             "sudo python3 backend/netmapper_helper.py --dev\n\n"
             "Or use the launcher script:\n"
             "./netmapper"
         )
-        response = dialog.show()
+        dialog.connect("response", lambda d, r: d.destroy())
+        dialog.present()
+        # Get response (blocking)
+        response = dialog.run()
         dialog.destroy()
         
         if response == Gtk.ResponseType.OK:
@@ -1766,10 +2260,57 @@ class MainWindow(Gtk.Window):
 
     def on_scan_clicked(self, btn):
         """Handle scan button click."""
-        cidr = self.cidr_entry.get_text().strip()
-        if not cidr:
+        cidr_input = self.cidr_entry.get_text().strip()
+        if not cidr_input:
             self.status_label.set_text('Please enter a CIDR network')
             return
+        
+        # Check if multiple CIDRs are provided (comma-separated)
+        if ',' in cidr_input:
+            # Multiple networks - use scan_multiple command
+            cidrs = [c.strip() for c in cidr_input.split(',') if c.strip()]
+            if len(cidrs) < 2:
+                self._show_info_dialog("Scan", "Please provide at least 2 CIDRs separated by commas")
+                return
+            
+            self.status_label.set_text(f"Scanning {len(cidrs)} networks...")
+            self.progress_bar.set_visible(True)
+            self.progress_bar.pulse()
+            self.scan_btn.set_sensitive(False)
+            self.cancel_scan_btn.set_visible(True)
+            
+            result = self.send_request({
+                "cmd": "scan_multiple",
+                "cidrs": cidrs
+            })
+            
+            if result:
+                try:
+                    j = json.loads(result)
+                    if j.get('status') == 'started':
+                        scan_id = j.get('scan_id')
+                        self.current_scan_id = scan_id
+                        self.current_cidr = cidr_input  # Store for subnet detection
+                        self.status_label.set_text(f"Multi-network scan started: {scan_id}")
+                        # Initialize polling state
+                        self._poll_attempts = 0
+                        self._poll_start_time = time.time()
+                        # Poll for results
+                        GLib.timeout_add(500, self._poll_for_results)
+                    else:
+                        self._show_error_dialog("Scan Error", j.get('message', 'Unknown error'))
+                        self.progress_bar.set_visible(False)
+                        self.scan_btn.set_sensitive(True)
+                        self.cancel_scan_btn.set_visible(False)
+                except Exception as e:
+                    self._show_error_dialog("Scan Error", str(e))
+                    self.progress_bar.set_visible(False)
+                    self.scan_btn.set_sensitive(True)
+                    self.cancel_scan_btn.set_visible(False)
+            return
+        
+        # Single CIDR scan
+        cidr = cidr_input
         
         # Validate CIDR format (basic)
         if '/' not in cidr:
@@ -2002,7 +2543,7 @@ class MainWindow(Gtk.Window):
     def _show_host_details(self, ip, mac, hostname, vendor):
         """Show detailed host information dialog."""
         dialog = Gtk.Dialog(title=f"Host Details: {ip}", transient_for=self, modal=True)
-        dialog.set_default_size(400, 300)
+        dialog.set_default_size(500, 450)  # Larger size to show Nmap history
         
         vbox = dialog.get_content_area()
         vbox.set_margin_start(20)
@@ -2030,36 +2571,52 @@ class MainWindow(Gtk.Window):
         
         vbox.append(info_grid)
         
+        # Separator
+        separator = Gtk.Separator()
+        separator.set_margin_top(12)
+        separator.set_margin_bottom(12)
+        vbox.append(separator)
+        
         # Nmap history section
-        nmap_history_label = Gtk.Label(label="Nmap Scan History:")
+        nmap_history_label = Gtk.Label(label="<b>Nmap Scan History:</b>")
         nmap_history_label.set_halign(Gtk.Align.START)
-        nmap_history_label.set_margin_top(12)
+        nmap_history_label.set_use_markup(True)
+        nmap_history_label.set_margin_top(6)
+        nmap_history_label.set_margin_bottom(6)
         vbox.append(nmap_history_label)
         
         # Nmap history list
-        nmap_store = Gtk.ListStore(int, str, str)  # timestamp, ports, services
+        nmap_store = Gtk.ListStore(int, str, str)  # timestamp, date/time, ports/services
         nmap_view = Gtk.TreeView(model=nmap_store)
         
         renderer = Gtk.CellRendererText()
         col = Gtk.TreeViewColumn(title="Date/Time")
         col.pack_start(renderer, True)
         col.add_attribute(renderer, "text", 1)
+        col.set_resizable(True)
+        col.set_min_width(150)
         nmap_view.append_column(col)
         
         col = Gtk.TreeViewColumn(title="Ports/Services")
         col.pack_start(renderer, True)
         col.add_attribute(renderer, "text", 2)
         col.set_resizable(True)
+        col.set_expand(True)
         nmap_view.append_column(col)
         
         nmap_scroll = Gtk.ScrolledWindow()
         nmap_scroll.set_child(nmap_view)
-        nmap_scroll.set_min_content_height(120)
-        nmap_scroll.set_max_content_height(200)
+        nmap_scroll.set_min_content_height(180)
+        nmap_scroll.set_vexpand(True)
+        nmap_scroll.set_hexpand(True)
         vbox.append(nmap_scroll)
         
-        # Load Nmap history
-        self._load_nmap_history(ip, nmap_store)
+        # Load Nmap history asynchronously after dialog is shown
+        def load_history_async():
+            self._load_nmap_history(ip, nmap_store)
+            return False  # Don't repeat
+        
+        GLib.idle_add(load_history_async)
         
         # Close button
         dialog.add_button("Close", Gtk.ResponseType.CLOSE)
@@ -2069,25 +2626,56 @@ class MainWindow(Gtk.Window):
     
     def _load_nmap_history(self, ip, store):
         """Load Nmap scan history for a host."""
+        print(f"🔍 Loading Nmap history for {ip}...")
+        # Use longer timeout for history requests (10 seconds)
         result = self.send_request({
             "cmd": "get_nmap_history",
             "ip": ip,
             "limit": 20
-        })
+        }, timeout=10.0)
+        print(f"📡 Nmap history response: {result[:200] if result else 'None'}...")
         if result:
             try:
                 j = json.loads(result)
+                print(f"📊 Parsed JSON status: {j.get('status')}")
                 if j.get('status') == 'ok':
                     history = j.get('history', [])
-                    for entry in history:
-                        ts = entry.get('timestamp', 0)
-                        time_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(ts)) if ts else '-'
-                        ports = entry.get('ports', '')
-                        services = entry.get('services', '')
-                        display = ports if ports else services if services else 'No ports found'
-                        store.append([ts, time_str, display])
-            except:
-                pass
+                    print(f"📋 Found {len(history)} history entries")
+                    if history:
+                        for entry in history:
+                            ts = entry.get('timestamp', 0)
+                            time_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(ts)) if ts else '-'
+                            ports = entry.get('ports', '')
+                            services = entry.get('services', '')
+                            # Combine ports and services for better display
+                            if ports and services:
+                                display = f"{ports} | {services}"
+                            elif ports:
+                                display = ports
+                            elif services:
+                                display = services
+                            else:
+                                display = 'No ports found'
+                            print(f"  ➕ Adding: {time_str} - {display[:50]}")
+                            store.append([ts, time_str, display])
+                    else:
+                        # Show "No history" message
+                        print("  ℹ️  No history found, showing placeholder")
+                        store.append([0, 'No scans yet', 'Run an Nmap scan to see results here'])
+                else:
+                    # Show error message
+                    error_msg = j.get('message', 'Unknown error')
+                    print(f"  ❌ Error from server: {error_msg}")
+                    store.append([0, 'Error', f"Failed to load history: {error_msg}"])
+            except Exception as e:
+                # Show exception in the list
+                print(f"  ❌ Exception loading history: {e}")
+                import traceback
+                traceback.print_exc()
+                store.append([0, 'Error', f"Failed to load history: {str(e)}"])
+        else:
+            print("  ❌ No response from server")
+            store.append([0, 'Error', 'No response from helper service'])
     
     def on_nmap_clicked(self, btn):
         """Handle Nmap scan button click."""
@@ -2198,7 +2786,8 @@ class MainWindow(Gtk.Window):
         """Export scan results to file."""
         dialog = Gtk.FileChooserDialog(
             title="Export Scan Results",
-            transient_for=self,
+            transient_for=self.window if hasattr(self, 'window') else self,
+            modal=True,
             action=Gtk.FileChooserAction.SAVE
         )
         dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
@@ -2219,21 +2808,29 @@ class MainWindow(Gtk.Window):
         csv_filter.add_pattern("*.csv")
         dialog.add_filter(csv_filter)
         
-        response = dialog.show()
-        if response == Gtk.ResponseType.ACCEPT:
-            filename = dialog.get_filename()
-            dialog.destroy()
-            
-            # Determine format from extension
-            if filename.endswith('.json'):
-                self._export_json(hosts, filename)
-            elif filename.endswith('.csv'):
-                self._export_csv(hosts, filename)
-            else:
-                # Default to JSON
-                self._export_json(hosts, filename + '.json')
-        else:
-            dialog.destroy()
+        def on_response(d, response_id):
+            if response_id == Gtk.ResponseType.ACCEPT:
+                filename = dialog.get_filename()
+                if filename:
+                    # Ensure correct extension
+                    active_filter = dialog.get_filter()
+                    if active_filter == json_filter and not filename.endswith('.json'):
+                        filename += '.json'
+                    elif active_filter == csv_filter and not filename.endswith('.csv'):
+                        filename += '.csv'
+                    elif not filename.endswith('.json') and not filename.endswith('.csv'):
+                        # Default to JSON if no extension
+                        filename += '.json'
+                    
+                    # Export based on file type
+                    if filename.endswith('.json'):
+                        self._export_json(hosts, filename)
+                    elif filename.endswith('.csv'):
+                        self._export_csv(hosts, filename)
+            dialog.close()
+        
+        dialog.connect("response", on_response)
+        dialog.present()
     
     def _export_json(self, hosts, filename):
         """Export results as JSON."""
@@ -2380,7 +2977,8 @@ class MainWindow(Gtk.Window):
             buttons=Gtk.ButtonsType.OK,
             text=title
         )
-        dialog.set_secondary_text(message)
+        # GTK4 doesn't have set_secondary_text, use set_markup instead
+        dialog.set_markup(f"<b>{title}</b>\n\n{message}")
         dialog.connect("response", lambda d, r: d.close())
         dialog.present()
     
@@ -2393,7 +2991,8 @@ class MainWindow(Gtk.Window):
             buttons=Gtk.ButtonsType.OK,
             text=title
         )
-        dialog.set_secondary_text(message)
+        # GTK4 doesn't have set_secondary_text, use set_markup instead
+        dialog.set_markup(f"<b>{title}</b>\n\n{message}")
         dialog.connect("response", lambda d, r: d.close())
         dialog.present()
 
@@ -2406,7 +3005,7 @@ class MainWindow(Gtk.Window):
         # Create file chooser dialog
         dialog = Gtk.FileChooserDialog(
             title="Export Network Map",
-            transient_for=self,
+            transient_for=self.window if hasattr(self, 'window') else self,
             modal=True,
             action=Gtk.FileChooserAction.SAVE
         )
@@ -2588,14 +3187,16 @@ class MainWindow(Gtk.Window):
             data = s.recv(65536).decode('utf-8')
             s.close()
             return data
-        except (ConnectionRefusedError, FileNotFoundError, socket.timeout, socket.error) as e:
-            # Only print socket errors for important operations (not port count lookups)
-            if not isinstance(e, socket.timeout):
-                print(f"Socket error: {e}")
-            # Timeout errors are silent to avoid spam
+        except socket.timeout as e:
+            print(f"⚠️  Socket timeout ({timeout}s) for command: {obj.get('cmd', 'unknown')}")
+            return None
+        except (ConnectionRefusedError, FileNotFoundError, socket.error) as e:
+            print(f"Socket error: {e}")
             return None
         except Exception as e:
             print(f"Request error: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
 

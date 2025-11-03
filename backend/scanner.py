@@ -10,7 +10,7 @@ import os
 conf.verb = 0
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
-def arp_scan(cidr, timeout=2, mock_mode=False):
+def arp_scan(cidr, timeout=2, mock_mode=False, parallel=False):
     """
     Perform ARP scan on a CIDR network.
     
@@ -18,6 +18,7 @@ def arp_scan(cidr, timeout=2, mock_mode=False):
         cidr: Network CIDR (e.g., "192.168.1.0/24")
         timeout: Timeout per host in seconds
         mock_mode: If True, return fake data for testing (192.168.100.0/24 only)
+        parallel: If True, use parallel scanning for large networks
         
     Returns:
         List of dicts with keys: ip, mac, hostname
@@ -34,6 +35,43 @@ def arp_scan(cidr, timeout=2, mock_mode=False):
             return get_fake_hosts(cidr)
     
     try:
+        # For large networks, use parallel scanning
+        if parallel:
+            return _arp_scan_parallel(cidr, timeout)
+        
+        # Check if we're scanning a subnet we're not on (ARP won't work)
+        import ipaddress
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+            # Get local IP addresses
+            import socket
+            local_ips = []
+            hostname = socket.gethostname()
+            local_ips.extend([ip for ip in socket.gethostbyname_ex(hostname)[2] if not ip.startswith("127.")])
+            # Also check interface IPs
+            try:
+                import subprocess
+                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=1)
+                if result.returncode == 0:
+                    local_ips.extend([ip.split('/')[0] for ip in result.stdout.strip().split()])
+            except:
+                pass
+            
+            # Check if any local IP is in the network being scanned
+            on_same_subnet = False
+            for local_ip in local_ips:
+                try:
+                    if ipaddress.ip_address(local_ip) in network:
+                        on_same_subnet = True
+                        break
+                except:
+                    pass
+            
+            if not on_same_subnet and network.prefixlen <= 24:
+                logging.warning(f"⚠️  Scanning {cidr} but local IPs {local_ips} are not in this network. ARP may not work across subnets!")
+        except:
+            pass  # Skip subnet check if it fails
+        
         pkt = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=cidr)
         ans, _ = srp(pkt, timeout=timeout, retry=1, verbose=False)
         hosts = []
@@ -49,6 +87,55 @@ def arp_scan(cidr, timeout=2, mock_mode=False):
     except Exception as e:
         logging.error(f"ARP scan error: {e}")
         return []
+
+
+def _arp_scan_parallel(cidr, timeout=2):
+    """Perform parallel ARP scan for large networks."""
+    try:
+        import ipaddress
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        network = ipaddress.ip_network(cidr, strict=False)
+        
+        # For /24 or smaller, use regular scan
+        if network.prefixlen >= 24:
+            return arp_scan(cidr, timeout, parallel=False)
+        
+        # For larger networks, split into /24 subnets and scan in parallel
+        subnets = list(network.subnets(new_prefix=24))
+        logging.info(f"Parallel scanning {len(subnets)} /24 subnets for {cidr}")
+        
+        hosts = []
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(arp_scan, str(subnet), timeout, False, False): subnet 
+                      for subnet in subnets}
+            
+            completed = 0
+            failed = 0
+            for future in as_completed(futures):
+                subnet = futures[future]
+                try:
+                    subnet_hosts = future.result()
+                    if subnet_hosts:
+                        hosts.extend(subnet_hosts)
+                        logging.info(f"Subnet {subnet}: found {len(subnet_hosts)} hosts")
+                    completed += 1
+                    if completed % 10 == 0:
+                        logging.info(f"Progress: {completed}/{len(subnets)} subnets, {len(hosts)} total hosts found")
+                except Exception as e:
+                    failed += 1
+                    logging.error(f"Parallel scan error for {subnet}: {e}")
+        
+        if failed > 0:
+            logging.warning(f"Failed to scan {failed} subnets (may be on different network segments)")
+        
+        logging.info(f"Parallel scan complete: found {len(hosts)} total hosts across {len(subnets)} subnets")
+        return hosts
+    except Exception as e:
+        logging.error(f"Parallel ARP scan error: {e}")
+        import traceback
+        traceback.print_exc()
+        return arp_scan(cidr, timeout, parallel=False)  # Fallback to regular scan
 
 
 def nmap_scan(ip, ports="1-1024"):
