@@ -4,22 +4,35 @@ from scapy.all import ARP, Ether, srp, conf
 import socket
 import subprocess
 import logging
+import os
 
 # Suppress scapy warnings
 conf.verb = 0
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
-def arp_scan(cidr, timeout=2):
+def arp_scan(cidr, timeout=2, mock_mode=False):
     """
     Perform ARP scan on a CIDR network.
     
     Args:
         cidr: Network CIDR (e.g., "192.168.1.0/24")
         timeout: Timeout per host in seconds
+        mock_mode: If True, return fake data for testing (192.168.100.0/24 only)
         
     Returns:
         List of dicts with keys: ip, mac, hostname
     """
+    # Mock mode for testing fake networks
+    if mock_mode or os.getenv("NETMAPPER_MOCK_SCAN") == "1":
+        if "192.168.100" in cidr:
+            import sys
+            import os
+            mock_path = os.path.join(os.path.dirname(__file__), "..", "tests", "mock_scanner.py")
+            if os.path.exists(mock_path):
+                sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+                from tests.mock_scanner import get_fake_hosts
+                return get_fake_hosts(cidr)
+    
     try:
         pkt = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=cidr)
         ans, _ = srp(pkt, timeout=timeout, retry=1, verbose=False)

@@ -23,15 +23,16 @@ def test_mock_network():
     roles = {}
     for host in hosts[1:]:
         role = "unknown"
-        if "server" in host.get("hostname", "").lower() or "db" in host.get("hostname", "").lower():
+        hostname = (host.get("hostname") or "").lower()
+        if "server" in hostname or "db" in hostname:
             role = "server"
-        elif "camera" in host.get("hostname", "").lower() or "tv" in host.get("hostname", "").lower() or "light" in host.get("hostname", "").lower():
+        elif "camera" in hostname or "tv" in hostname or "light" in hostname or "hub" in hostname:
             role = "iot"
-        elif "phone" in host.get("hostname", "").lower() or "tablet" in host.get("hostname", "").lower():
+        elif "phone" in hostname or "tablet" in hostname:
             role = "mobile"
-        elif "printer" in host.get("hostname", "").lower():
+        elif "printer" in hostname:
             role = "printer"
-        elif "laptop" in host.get("hostname", "").lower() or "desktop" in host.get("hostname", "").lower():
+        elif "laptop" in hostname or "desktop" in hostname:
             role = "workstation"
         
         roles[role] = roles.get(role, 0) + 1
