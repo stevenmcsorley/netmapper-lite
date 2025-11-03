@@ -21,15 +21,36 @@ NetMapper-Lite is a two-process native Linux application:
 
 ## Features
 
+### Core Scanning
 - **ARP network scanning** with hostname resolution
 - **OUI vendor lookup** - identify device manufacturers from MAC addresses
 - **Optional Nmap port scanning** - per-host port scans with service detection
-- **Network topology visualization** - interactive map with zoom, pan, and clickable nodes
 - **Subnet detection** - automatically groups devices by subnetworks for better visualization
 - **Auto-detection** - automatically detects your network CIDR and gateway/router
-- **SQLite-based scan history** - browse past scans and results
+- **Scan cancel** - stop ongoing scans with a cancel button
+
+### Network Visualization
+- **Interactive network topology map** with zoom, pan, and clickable nodes
+- **Color-coded device types** - Gateway (blue), Servers (orange), IoT (purple), Mobile (yellow), Printers (light blue), Unknown (gray)
+- **Visual legend** - shows device type colors on the map
+- **Subnet clustering** - devices grouped by subnet for complex networks
+- **Export map as PNG** - save network topology as an image file
+
+### User Interface
+- **Filter/search box** - real-time filtering by IP, hostname, MAC, or vendor
+- **Sortable columns** - click column headers to sort results
+- **Progress indicator** - shows scan progress with elapsed time
+- **Desktop notifications** - alerts when scans complete
 - **GTK4 native Linux UI** - modern, responsive desktop interface
+- **Scan history** - browse past scans and results in sidebar
+- **Host details dialog** - double-click hosts for detailed information
+
+### Data Management
+- **SQLite-based scan history** - persistent storage of all scans
 - **Export functionality** - save scan results as JSON or CSV
+- **Nmap results display** - view open ports and services per host
+
+### Security & Operations
 - **Secure privilege separation** - helper runs with minimal capabilities
 - **Development and production modes** - easy testing and deployment
 
@@ -204,14 +225,37 @@ sudo systemctl start netmapper-helper.service
    - After a scan completes, the map auto-generates (or click "Refresh Map")
    - See your network topology with:
      - Gateway/router at the center (blue)
-     - Devices arranged by subnet (green circles)
+     - Devices arranged by subnet with color coding:
+       - Blue: Gateway/Router
+       - Orange: Servers
+       - Green: Regular devices
+       - Purple: IoT devices
+       - Yellow: Mobile devices
+       - Light Blue: Printers
+       - Gray: Unknown devices
      - Connection lines showing network topology
      - Subnet clusters when multiple subnets detected
+     - Legend in top-left corner showing device types
    - **Interact with the map:**
      - Click any device node to see detailed information
-     - Use "Zoom In" / "Zoom Out" buttons or mouse wheel
+     - Use "Zoom In" / "Zoom Out" buttons or mouse wheel (Ctrl+scroll)
      - Click "Reset View" to restore default zoom
+     - Use "Export Map as Image" to save as PNG
    - The map auto-detects your actual gateway/router from the routing table
+
+5. **Filter and search results**:
+   - Use the search box above the results table
+   - Type to filter by IP, hostname, MAC address, or vendor
+   - Click "Clear" to reset the filter
+   - Click column headers to sort results
+
+6. **Cancel scans**:
+   - Click "Cancel Scan" button that appears during active scans
+   - Immediately stops the scan and restores the UI
+
+7. **Export results**:
+   - Click "Export Results" to save scan data as JSON or CSV
+   - Click "Export Map as Image" in the Network Map tab to save the visualization
 
 ## Architecture
 
@@ -355,6 +399,16 @@ tail -f /tmp/helper.log
 # Production mode (systemd)
 sudo journalctl -u netmapper-helper.service -f
 ```
+
+### Export Map Not Working
+
+**Problem:** Export map dialog shows warning or doesn't save file  
+**Solution:** Ensure you've run a scan first to generate the map. The export feature creates a PNG file with the current map view including all nodes, connections, and the legend.
+
+### Search/Filter Not Working
+
+**Problem:** Search box doesn't filter results  
+**Solution:** Make sure you have scan results loaded. The filter searches across IP, hostname, MAC address, and vendor columns.
 
 ## Security Notes
 
