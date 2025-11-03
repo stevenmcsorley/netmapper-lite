@@ -24,13 +24,14 @@ def arp_scan(cidr, timeout=2, mock_mode=False):
     """
     # Mock mode for testing fake networks
     if mock_mode or os.getenv("NETMAPPER_MOCK_SCAN") == "1":
-        if "192.168.100" in cidr:
-            import sys
-            mock_path = os.path.join(os.path.dirname(__file__), "..", "tests", "mock_scanner.py")
-            if os.path.exists(mock_path):
-                sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-                from tests.mock_scanner import get_fake_hosts
-                return get_fake_hosts(cidr)
+        # Mock mode works for any CIDR - returns fake network data
+        import sys
+        mock_path = os.path.join(os.path.dirname(__file__), "..", "tests", "mock_scanner.py")
+        if os.path.exists(mock_path):
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+            from tests.mock_scanner import get_fake_hosts
+            # Mock scanner returns same fake data regardless of CIDR
+            return get_fake_hosts(cidr)
     
     try:
         pkt = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=cidr)
