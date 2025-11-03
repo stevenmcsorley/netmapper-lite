@@ -233,10 +233,46 @@ class NetMapperHelper:
             logger.error(f"Scan error for {scan_id}: {e}", exc_info=True)
 
     def _lookup_vendor(self, mac):
-        """Simple vendor lookup (can be enhanced with OUI database)."""
-        # TODO: Implement proper OUI database lookup
-        # For now, return None
+        """Lookup vendor from MAC address using OUI database."""
+        if not mac:
+            return None
+        
+        # Try dev mode OUI DB first, then production
+        oui_db_paths = [
+            os.path.expanduser("~/.local/share/netmapper/oui.db"),
+            "/usr/lib/netmapper/oui.db",
+            os.path.join(os.path.dirname(__file__), "oui.db")
+        ]
+        
+        for db_path in oui_db_paths:
+            if os.path.exists(db_path):
+                vendor = self._lookup_vendor_from_db(mac, db_path)
+                if vendor:
+                    return vendor
+        
         return None
+    
+    def _lookup_vendor_from_db(self, mac, db_path):
+        """Lookup vendor from OUI SQLite database."""
+        try:
+            # Extract first 6 hex chars (OUI prefix) from MAC
+            mac_clean = mac.upper().replace('-', ':').replace(' ', '')
+            parts = mac_clean.split(':')
+            
+            if len(parts) < 3:
+                return None
+            
+            oui_prefix = f"{parts[0]}{parts[1]}{parts[2]}"
+            
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute('SELECT vendor FROM oui WHERE oui_prefix = ?', (oui_prefix,))
+            result = c.fetchone()
+            conn.close()
+            return result[0] if result else None
+        except Exception as e:
+            logger.debug(f"OUI lookup error: {e}")
+            return None
 
     def _get_scan_results(self, scan_id):
         """Retrieve scan results from database."""

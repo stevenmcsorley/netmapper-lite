@@ -45,10 +45,23 @@ run-gui-dev:
 	python3 frontend/gui.py
 
 test:
-	@echo "Running test scan (requires helper to be running)"
+	@echo "Running integration tests..."
+	python3 -m pytest tests/ -v || python3 -m unittest discover tests/ -v
+
+test-lint:
+	@echo "Running linting checks..."
+	python3 tests/test_linting.py
+
+test-integration:
+	@echo "Running integration tests only..."
+	python3 -m pytest tests/test_integration.py -v || python3 -m unittest tests.test_integration -v
+
+test-scan-quick:
+	@echo "Running quick scan test (requires helper to be running)"
 	python3 -c "import socket, json, os; \
 	sock_path = '/tmp/netmapper-helper.sock' if os.path.exists('/tmp/netmapper-helper.sock') else '/var/run/netmapper-helper.sock'; \
 	s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); \
+	s.settimeout(2); \
 	s.connect(sock_path); \
 	s.sendall(json.dumps({'cmd': 'scan', 'cidr': '192.168.1.0/24'}).encode()); \
 	print('Response:', s.recv(4096).decode()); \

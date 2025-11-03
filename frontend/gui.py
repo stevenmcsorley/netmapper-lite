@@ -115,12 +115,32 @@ class MainWindow(Gtk.Window):
         col.set_sort_column_id(3)
         self.tree_view.append_column(col)
         
+        # Add Actions column with Nmap button
+        action_col = Gtk.TreeViewColumn(title="Actions")
+        action_renderer = Gtk.CellRendererText()
+        action_renderer.set_property("text", "Scan Ports")
+        action_col.pack_start(action_renderer, True)
+        self.tree_view.append_column(action_col)
+        
+        # Connect selection changed to enable/disable Nmap button
+        selection = self.tree_view.get_selection()
+        selection.connect("changed", self.on_host_selected)
+        
+        # Nmap scan button (initially disabled)
+        self.nmap_btn = Gtk.Button(label='Scan Ports (Nmap)')
+        self.nmap_btn.connect('clicked', self.on_nmap_clicked)
+        self.nmap_btn.set_sensitive(False)
+        control_box.append(self.nmap_btn)
+        
         # Scrolled window
         scroll = Gtk.ScrolledWindow()
         scroll.set_child(self.tree_view)
         scroll.set_hexpand(True)
         scroll.set_vexpand(True)
         results_frame.set_child(scroll)
+        
+        # Store selected host
+        self.selected_host = None
         
         # Bottom status bar
         status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin=6)
@@ -255,6 +275,180 @@ class MainWindow(Gtk.Window):
             ])
         self.host_count_label.set_text(f"Hosts: {len(hosts)}")
 
+    def on_host_selected(self, selection):
+        """Handle host selection in tree view."""
+        model, tree_iter = selection.get_selected()
+        if tree_iter:
+            ip = model[tree_iter][0]
+            mac = model[tree_iter][1]
+            hostname = model[tree_iter][2]
+            self.selected_host = {"ip": ip, "mac": mac, "hostname": hostname}
+            self.nmap_btn.set_sensitive(True)
+        else:
+            self.selected_host = None
+            self.nmap_btn.set_sensitive(False)
+    
+    def on_nmap_clicked(self, btn):
+        """Handle Nmap scan button click."""
+        if not self.selected_host:
+            return
+        
+        ip = self.selected_host['ip']
+        self.status_label.set_text(f"Running Nmap scan on {ip}...")
+        self.nmap_btn.set_sensitive(False)
+        
+        # Send Nmap request
+        result = self.send_request({
+            "cmd": "nmap",
+            "ip": ip,
+            "ports": "1-1024"
+        })
+        
+        self.nmap_btn.set_sensitive(True)
+        
+        if not result:
+            self.status_label.set_text('Error: Nmap scan failed')
+            return
+        
+        try:
+            j = json.loads(result)
+            if j.get('status') == 'ok':
+                nmap_xml = j.get('nmap_xml', '')
+                self._show_nmap_results(ip, nmap_xml)
+            else:
+                self.status_label.set_text(f"Error: {j.get('message', 'Unknown error')}")
+        except Exception as e:
+            self.status_label.set_text(f"Error parsing Nmap results: {e}")
+    
+    def _show_nmap_results(self, ip, nmap_xml):
+        """Parse and display Nmap results in a dialog."""
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(nmap_xml)
+            
+            # Check for errors
+            if 'error' in nmap_xml.lower():
+                self._show_error_dialog("Nmap Error", nmap_xml)
+                return
+            
+            # Parse ports
+            ports = []
+            for host in root.findall('host'):
+                for ports_elem in host.findall('ports'):
+                    for port in ports_elem.findall('port'):
+                        port_id = port.get('portid')
+                        protocol = port.get('protocol')
+                        state = port.find('state')
+                        service = port.find('service')
+                        
+                        state_text = state.get('state') if state is not None else 'unknown'
+                        service_name = service.get('name') if service is not None else '-'
+                        service_product = service.get('product', '')
+                        service_version = service.get('version', '')
+                        
+                        ports.append({
+                            'port': f"{port_id}/{protocol}",
+                            'state': state_text,
+                            'service': service_name,
+                            'product': service_product,
+                            'version': service_version
+                        })
+            
+            if not ports:
+                self._show_info_dialog("Nmap Results", f"No open ports found on {ip}")
+                return
+            
+            # Create results dialog
+            dialog = Gtk.Dialog(title=f"Nmap Results: {ip}", transient_for=self, modal=True)
+            dialog.set_default_size(600, 400)
+            
+            vbox = dialog.get_content_area()
+            label = Gtk.Label(label=f"Open ports on {ip}:")
+            label.set_halign(Gtk.Align.START)
+            label.set_margin_bottom(10)
+            vbox.append(label)
+            
+            # Create tree view for ports
+            store = Gtk.ListStore(str, str, str, str)  # Port, State, Service, Product/Version
+            
+            tree_view = Gtk.TreeView(model=store)
+            tree_view.set_hexpand(True)
+            tree_view.set_vexpand(True)
+            
+            renderer = Gtk.CellRendererText()
+            
+            col = Gtk.TreeViewColumn(title="Port")
+            col.pack_start(renderer, True)
+            col.add_attribute(renderer, "text", 0)
+            tree_view.append_column(col)
+            
+            col = Gtk.TreeViewColumn(title="State")
+            col.pack_start(renderer, True)
+            col.add_attribute(renderer, "text", 1)
+            tree_view.append_column(col)
+            
+            col = Gtk.TreeViewColumn(title="Service")
+            col.pack_start(renderer, True)
+            col.add_attribute(renderer, "text", 2)
+            tree_view.append_column(col)
+            
+            col = Gtk.TreeViewColumn(title="Product/Version")
+            col.pack_start(renderer, True)
+            col.add_attribute(renderer, "text", 3)
+            tree_view.append_column(col)
+            
+            # Add ports to store
+            for p in ports:
+                product_info = f"{p['product']} {p['version']}".strip()
+                if not product_info:
+                    product_info = '-'
+                store.append([p['port'], p['state'], p['service'], product_info])
+            
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_child(tree_view)
+            scroll.set_hexpand(True)
+            scroll.set_vexpand(True)
+            vbox.append(scroll)
+            
+            # Close button
+            dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+            dialog.connect("response", lambda d, r: d.close())
+            
+            dialog.present()
+            
+            self.status_label.set_text(f"Nmap scan complete: {len(ports)} ports found")
+            
+        except ET.ParseError as e:
+            self._show_error_dialog("Parse Error", f"Failed to parse Nmap XML: {e}")
+        except Exception as e:
+            self._show_error_dialog("Error", f"Failed to display Nmap results: {e}")
+    
+    def _show_info_dialog(self, title, message):
+        """Show info dialog."""
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text=title
+        )
+        dialog.set_secondary_text(message)
+        dialog.connect("response", lambda d, r: d.close())
+        dialog.present()
+    
+    def _show_error_dialog(self, title, message):
+        """Show error dialog."""
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text=title
+        )
+        dialog.set_secondary_text(message)
+        dialog.connect("response", lambda d, r: d.close())
+        dialog.present()
+
     def send_request(self, obj):
         """Send JSON request to helper via UNIX socket."""
         if not os.path.exists(self.socket_path):
@@ -262,7 +456,7 @@ class MainWindow(Gtk.Window):
         
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(5)
+            s.settimeout(30)  # Longer timeout for Nmap
             s.connect(self.socket_path)
             s.sendall(json.dumps(obj).encode('utf-8'))
             data = s.recv(65536).decode('utf-8')
