@@ -37,6 +37,9 @@ NetMapper-Lite is a two-process native Linux application:
 - **Hover tooltips** - display device info when hovering over map nodes
 - **Visual legend** - shows device type colors on the map
 - **Subnet clustering** - devices grouped by subnet for complex networks
+- **Subnet visualization** - subnets displayed in blue rounded boxes with clear boundaries
+- **Topology routing** - shows routing paths between subnets with thick blue dashed lines
+- **Main gateway display** - prominently displayed as large central node (40px radius) with white border and glow
 - **Export map as PNG** - save network topology as an image file
 
 ### User Interface
@@ -246,7 +249,9 @@ sudo systemctl start netmapper-helper.service
        - Light Blue: Printers
        - Gray: Unknown devices
      - Connection lines showing network topology
-     - Subnet clusters when multiple subnets detected
+     - Subnet clusters when multiple subnets detected (displayed in blue rounded boxes)
+     - Routing paths between subnets (thick blue dashed lines with labels)
+     - Main gateway prominently displayed at center (large blue node with white border)
      - Legend in top-left corner showing device types
    - **Interact with the map:**
      - Click any device node to see detailed information
