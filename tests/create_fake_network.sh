@@ -62,9 +62,24 @@ if ip link show "$BRIDGE_NAME" &>/dev/null; then
     sleep 1
 fi
 
-# Create fresh bridge
-ip link add "$BRIDGE_NAME" type bridge
-ip addr add "$TEST_GATEWAY/24" dev "$BRIDGE_NAME"
+# Try to create fresh bridge - handle policy validation errors
+if ! ip link add "$BRIDGE_NAME" type bridge 2>&1; then
+    echo ""
+    echo "  ❌ Failed to create bridge (may be due to kernel security policy)"
+    echo ""
+    echo "  💡 Recommended: Use mock mode instead (no root, instant):"
+    echo "     NETMAPPER_MOCK_SCAN=1 ./netmapper"
+    echo "     Then scan: $TEST_NET"
+    echo ""
+    echo "  🔧 Or try alternatives:"
+    echo "     1. Check bridge module: lsmod | grep bridge"
+    echo "     2. Load module: sudo modprobe bridge"
+    echo "     3. Try simpler script: sudo tests/create_fake_network_simple.sh"
+    echo ""
+    exit 1
+fi
+
+ip addr add "$TEST_GATEWAY/24" dev "$BRIDGE_NAME" 2>/dev/null || true
 ip link set "$BRIDGE_NAME" up
 echo "  ✅ Bridge created and started"
 
