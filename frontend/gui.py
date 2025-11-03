@@ -1142,12 +1142,33 @@ class MainWindow(Gtk.Window):
             self.status_label.set_text(f"Error: {e}")
             self.scan_btn.set_sensitive(True)
 
+    def on_cancel_scan_clicked(self, btn):
+        """Handle cancel scan button click."""
+        self._scan_cancelled = True
+        self.status_label.set_text('Scan cancelled by user')
+        self.progress_bar.set_visible(False)
+        self.scan_btn.set_sensitive(True)
+        self.export_btn.set_sensitive(True)
+        self.cancel_scan_btn.set_visible(False)
+        
+        # Stop polling
+        if hasattr(self, '_refresh_timeout_id') and self._refresh_timeout_id:
+            GLib.source_remove(self._refresh_timeout_id)
+            self._refresh_timeout_id = None
+        
+        # Send cancel request to helper (if supported)
+        try:
+            self.send_request({"cmd": "cancel_scan", "scan_id": self.current_scan_id})
+        except:
+            pass  # Helper may not support cancel yet
+
     def _start_polling(self):
         """Start polling for scan results."""
         if self._refresh_timeout_id:
             GLib.source_remove(self._refresh_timeout_id)
         
         self._poll_attempts = 0
+        self._poll_start_time = time.time()
         self._poll_for_results()
 
     def _poll_for_results(self):
