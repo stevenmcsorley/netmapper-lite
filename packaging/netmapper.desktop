@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=NetMapper-Lite
+Comment=NetMapper-Lite — local network discovery & visualization
+Exec=/usr/local/bin/netmapper
+Icon=network-workgroup
+Terminal=false
+Type=Application
+Categories=Network;System;
+StartupWMClass=NetMapper-Lite
+Keywords=network;scanner;map;topology;arp;nmap;
+

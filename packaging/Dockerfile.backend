@@ -1,0 +1,33 @@
+FROM python:3.11-slim
+
+# Non-root user for security
+RUN adduser --disabled-password --gecos "" netmapper
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        nmap \
+        iproute2 \
+        && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend code
+COPY backend/ /app/backend/
+
+# Switch to non-root user
+USER netmapper
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Runtime entrypoint: run helper in dev socket mode
+# Note: For real ARP scanning, run container with --cap-add=NET_RAW --cap-add=NET_ADMIN
+# or use --network=host (with caution)
+CMD ["python", "/app/backend/netmapper_helper.py", "--dev"]
+
