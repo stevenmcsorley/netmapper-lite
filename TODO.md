@@ -36,11 +36,15 @@
 ## UI Enhancements
 
 - [ ] Dark mode support
-- [ ] Host details dialog (click on host row)
-- [ ] Scan history sidebar
-- [ ] Export scan results
-- [ ] Network topology visualization
-- [ ] Filter/search hosts
+- [x] Host details dialog (click on host row or map nodes)
+- [x] Scan history sidebar
+- [x] Export scan results (JSON/CSV)
+- [x] Network topology visualization
+- [x] Interactive map with zoom/pan and clickable nodes
+- [x] Subnet detection and visualization
+- [ ] Filter/search hosts in results table
+- [ ] Color-coded nodes by device type
+- [ ] Map legend/key
 
 ## Testing
 
