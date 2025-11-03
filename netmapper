@@ -32,18 +32,30 @@ fi
 
 # Wait for helper to start
 echo "Waiting for helper to start..."
-for i in {1..10}; do
+HELPER_STARTED=0
+for i in {1..15}; do
     if [ -e /tmp/netmapper-helper.sock ]; then
-        echo "✅ Helper started"
-        break
+        # Verify socket is actually working
+        python3 -c "import socket; s = socket.socket(socket.AF_UNIX); s.settimeout(1); s.connect('/tmp/netmapper-helper.sock'); s.close()" 2>/dev/null && {
+            echo "✅ Helper started and responding"
+            HELPER_STARTED=1
+            break
+        }
     fi
     sleep 0.5
 done
 
-if [ ! -e /tmp/netmapper-helper.sock ]; then
-    echo "❌ Helper failed to start"
+if [ $HELPER_STARTED -eq 0 ]; then
+    echo "❌ Helper failed to start or is not responding"
     echo "Check logs: tail -20 /tmp/helper.log"
-    tail -10 /tmp/helper.log
+    tail -10 /tmp/helper.log 2>/dev/null || echo "No log file found"
+    echo ""
+    echo "Trying to start helper manually..."
+    if [ $NEED_SUDO -eq 1 ]; then
+        echo "Run: sudo python3 backend/netmapper_helper.py --dev"
+    else
+        echo "Run: python3 backend/netmapper_helper.py --dev"
+    fi
     exit 1
 fi
 
