@@ -72,6 +72,9 @@ class MainWindow(Gtk.Window):
             traceback.print_exc()
             raise
         
+        # Apply dark mode
+        self._apply_theme()
+        
         # Restore window position/size (after window is shown)
         GLib.idle_add(self._restore_window_state)
         
