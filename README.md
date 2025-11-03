@@ -12,16 +12,25 @@ NetMapper-Lite is a two-process native Linux application:
    - Exposes a local IPC (UNIX domain socket) for communication
 
 2. **GTK Desktop Frontend**
-   - User interface for triggering scans, viewing results, and browsing history
+   - User interface with three main tabs:
+     - **Scan Results**: View discovered hosts with IP, MAC, hostname, and vendor
+     - **History**: Browse past scan results
+     - **Network Map**: Visual topology showing gateway and device connections
+   - Features: Nmap port scanning, export to JSON/CSV, host details dialog
    - Runs as normal user; communicates with helper over UNIX socket
 
 ## Features
 
-- ARP network scanning with hostname resolution
-- SQLite-based scan history
-- GTK4 native Linux UI
-- Secure privilege separation (helper runs with minimal capabilities)
-- Development and production modes
+- **ARP network scanning** with hostname resolution
+- **OUI vendor lookup** - identify device manufacturers from MAC addresses
+- **Optional Nmap port scanning** - per-host port scans with service detection
+- **Network topology visualization** - interactive map showing gateway and connected devices
+- **Auto-detection** - automatically detects your network CIDR and gateway/router
+- **SQLite-based scan history** - browse past scans and results
+- **GTK4 native Linux UI** - modern, responsive desktop interface
+- **Export functionality** - save scan results as JSON or CSV
+- **Secure privilege separation** - helper runs with minimal capabilities
+- **Development and production modes** - easy testing and deployment
 
 ## Requirements
 
@@ -186,8 +195,18 @@ sudo systemctl start netmapper-helper.service
 
 3. **Perform a scan**:
    - Enter CIDR network (e.g., `192.168.1.0/24`)
+     - The GUI auto-detects your network CIDR on startup
    - Click "Start Scan"
    - Results appear automatically when scan completes
+
+4. **View network map**:
+   - After a scan completes, click the "Network Map" tab
+   - See your network topology with:
+     - Gateway/router at the center (blue)
+     - All devices arranged in a circle (green)
+     - Connection lines showing network topology
+   - Click any device node to see detailed information
+   - The map auto-detects your actual gateway/router from the routing table
 
 ## Architecture
 
