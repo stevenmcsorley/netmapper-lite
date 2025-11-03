@@ -404,30 +404,67 @@ class MainWindow(Gtk.Window):
         
         # Simple circular layout
         import math
+        import subprocess
         center_x, center_y = 400, 300
         radius = min(250, len(hosts) * 15)
         
         self.network_nodes = []
         
-        # Identify gateway (usually .1 or .254)
+        # Detect actual gateway IP from system routing table
+        actual_gateway_ip = None
+        try:
+            result = subprocess.run(
+                ['ip', 'route', 'show', 'default'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                parts = result.stdout.split()
+                for i, part in enumerate(parts):
+                    if part == 'via':
+                        actual_gateway_ip = parts[i+1] if i+1 < len(parts) else None
+                        break
+        except:
+            pass
+        
+        # Find gateway host in scan results
         gateway = None
-        for host in hosts:
-            ip_parts = host.get('ip', '').split('.')
-            if len(ip_parts) == 4:
-                last_octet = ip_parts[-1]
-                if last_octet in ['1', '254']:
+        if actual_gateway_ip:
+            # Match by actual gateway IP
+            for host in hosts:
+                if host.get('ip') == actual_gateway_ip:
                     gateway = host
                     break
         
+        # Fallback: try common gateway IPs (.1 or .254) if not found
+        if not gateway:
+            for host in hosts:
+                ip_parts = host.get('ip', '').split('.')
+                if len(ip_parts) == 4:
+                    last_octet = ip_parts[-1]
+                    if last_octet in ['1', '254']:
+                        gateway = host
+                        break
+        
         # Position gateway in center if found
         if gateway:
+            # Use better label for gateway
+            gateway_label = gateway.get('hostname') or gateway.get('vendor') or 'Router'
+            # If it's a vendor-specific device (like Hikvision), show that
+            if gateway.get('vendor') and 'hikvision' in gateway.get('vendor', '').lower():
+                gateway_label = gateway.get('vendor')  # Show it's Hikvision, but still mark as gateway
+            elif not gateway.get('hostname') and not gateway.get('vendor'):
+                gateway_label = 'Router'
+            
             self.network_nodes.append({
                 'x': center_x,
                 'y': center_y,
                 'ip': gateway.get('ip', ''),
                 'mac': gateway.get('mac', ''),
-                'hostname': gateway.get('hostname') or 'Router',
+                'hostname': gateway.get('hostname') or '',
                 'vendor': gateway.get('vendor') or '',
+                'label': gateway_label,
                 'type': 'gateway',
                 'radius': 25
             })
