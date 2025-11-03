@@ -154,6 +154,15 @@ class MainWindow(Gtk.Window):
         self.conn_label = Gtk.Label(label=conn_status)
         status_bar.append(self.conn_label)
         
+        # Start helper button (if not available)
+        self.start_helper_btn = Gtk.Button(label="Start Helper")
+        self.start_helper_btn.connect('clicked', self._start_helper_clicked)
+        if not os.path.exists(self.socket_path):
+            self.start_helper_btn.set_visible(True)
+        else:
+            self.start_helper_btn.set_visible(False)
+        status_bar.append(self.start_helper_btn)
+        
         # Refresh connection status periodically
         GLib.timeout_add_seconds(5, self._update_connection_status)
     
@@ -543,9 +552,46 @@ class MainWindow(Gtk.Window):
         """Update connection status indicator."""
         if os.path.exists(self.socket_path):
             self.conn_label.set_text("🟢 Helper connected")
+            self.start_helper_btn.set_visible(False)
         else:
             self.conn_label.set_text("🔴 Helper not available")
+            self.start_helper_btn.set_visible(True)
         return True  # Continue periodic updates
+    
+    def _start_helper_clicked(self, btn):
+        """Handle start helper button click."""
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="Start Helper Service"
+        )
+        dialog.set_secondary_text(
+            "The helper service needs to be started with sudo.\n\n"
+            "Please run this in a terminal:\n"
+            "sudo python3 backend/netmapper_helper.py --dev\n\n"
+            "Or use the launcher script:\n"
+            "./netmapper"
+        )
+        response = dialog.show()
+        dialog.destroy()
+        
+        if response == Gtk.ResponseType.OK:
+            # Try to start helper via subprocess (will prompt for sudo)
+            try:
+                import subprocess
+                import sys
+                script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                helper_path = os.path.join(script_dir, "backend", "netmapper_helper.py")
+                subprocess.Popen(
+                    ["sudo", "python3", helper_path, "--dev"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                self.status_label.set_text("Helper starting... (check terminal for sudo prompt)")
+            except Exception as e:
+                self._show_error_dialog("Error", f"Could not start helper automatically:\n{e}\n\nPlease start it manually.")
     
     def _load_scan_history(self):
         """Load recent scan history into sidebar."""
