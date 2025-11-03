@@ -49,7 +49,27 @@ sudo dnf install python3-gobject python3-gobject-devel gtk4
 sudo pacman -S python-gobject gtk4
 ```
 
-## Quick Start (Development Mode)
+## Quick Start (Easiest Way)
+
+### Single Command Launch
+
+```bash
+cd netmapper-lite
+./netmapper
+```
+
+That's it! This starts the helper and GUI together. You may be prompted for sudo password once for network permissions.
+
+### Alternative: Install to PATH
+
+```bash
+./netmapper.sh  # Installs launcher to ~/.local/bin
+netmapper       # Then run from anywhere
+```
+
+---
+
+## Quick Start (Development Mode - Manual)
 
 ### 1. Clone and Setup
 

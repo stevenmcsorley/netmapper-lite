@@ -1,0 +1,62 @@
+#!/bin/bash
+# Single command to launch NetMapper-Lite (helper + GUI)
+
+cd "$(dirname "$0")"
+
+echo "=========================================="
+echo "NetMapper-Lite Launcher"
+echo "=========================================="
+echo ""
+
+# Stop any existing helper
+pkill -f netmapper_helper.py 2>/dev/null || true
+sleep 1
+rm -f /tmp/netmapper-helper.sock
+
+# Check if we need sudo for helper
+NEED_SUDO=0
+if ! getcap $(which python3) 2>/dev/null | grep -q net_raw; then
+    NEED_SUDO=1
+fi
+
+if [ $NEED_SUDO -eq 1 ]; then
+    echo "Starting helper with sudo (requires password)..."
+    echo ""
+    # Start helper with sudo in background
+    sudo -b python3 backend/netmapper_helper.py --dev > /tmp/helper.log 2>&1
+else
+    echo "Starting helper..."
+    NETMAPPER_DEV=true python3 backend/netmapper_helper.py --dev > /tmp/helper.log 2>&1 &
+fi
+
+# Wait for helper to start
+echo "Waiting for helper to start..."
+for i in {1..10}; do
+    if [ -e /tmp/netmapper-helper.sock ]; then
+        echo "✅ Helper started"
+        break
+    fi
+    sleep 0.5
+done
+
+if [ ! -e /tmp/netmapper-helper.sock ]; then
+    echo "❌ Helper failed to start"
+    echo "Check logs: tail -20 /tmp/helper.log"
+    tail -10 /tmp/helper.log
+    exit 1
+fi
+
+echo ""
+echo "Starting GUI..."
+echo ""
+
+# Start GUI (foreground)
+python3 frontend/gui.py
+
+# When GUI closes, cleanup
+echo ""
+echo "Cleaning up..."
+pkill -f netmapper_helper.py 2>/dev/null || true
+rm -f /tmp/netmapper-helper.sock
+echo "Done."
+
