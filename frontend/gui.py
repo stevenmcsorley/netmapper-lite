@@ -397,12 +397,33 @@ class MainWindow(Gtk.Window):
                 pass
     
     def _generate_network_map(self, hosts):
-        """Generate network topology from hosts."""
+        """Generate network topology from hosts with subnet detection."""
         if not hosts:
             self.network_nodes = []
             return
         
-        # Simple circular layout
+        # Detect subnetworks
+        try:
+            import sys
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from backend.subnet_detector import detect_subnets
+            # Get base CIDR from current scan (if available)
+            base_cidr = self.current_cidr if hasattr(self, 'current_cidr') else "192.168.100.0/24"
+            subnet_info = detect_subnets(hosts, base_cidr)
+            subnets = subnet_info.get("subnets", [])
+            hosts_by_subnet = subnet_info.get("hosts_by_subnet", {})
+            
+            # If multiple subnets detected, use subnet-aware layout
+            if len(subnets) > 1:
+                self._generate_subnet_map(hosts, subnets, hosts_by_subnet)
+                return
+        except Exception as e:
+            print(f"Subnet detection error: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fall through to regular layout
+        
+        # Regular single-subnet layout
         import math
         import subprocess
         center_x, center_y = 400, 300
